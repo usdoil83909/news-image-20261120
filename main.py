@@ -1,4 +1,10 @@
-"""A deterministic, self-contained vector-type newspaper. Python standard library only."""
+"""Draw the 20 November 2026 world-news edition from embedded vector assets.
+
+The standard-library renderer builds a three-times-resolution RGB canvas,
+checks the typography, then averages each nine-pixel block into the final PNG.
+"""
+
+# Asset decoding, geometry, image serialization, and output reporting.
 import base64
 import hashlib
 import json
@@ -6,26 +12,9 @@ import math
 import os
 import struct
 import zlib
-SANS_COORDINATES = 'JZ\nMWRFRT RRYQZR[SZRY\nJZNFNM RVFVM\nH]SBLb RYBRb RLOZO RKUYU\nH\\PBP_ RTBT_ RYIWGTFPFMGKIKKLMMNOOUQWRXSYUYXWZT[P[MZKX\nF^[FI[ RNFPHPJOLMMKMIKIIJGLFNFPGSHVHYG[F RWTUUTWTYV[X[ZZ[X[VYTWT\nE_\\O\\N[MZMYNXPVUTXRZP[L[JZIYHWHUISJRQNRMSKSIRGPFNGMIMKNNPQUXWZY[[[\\Z\\Y\nMWRHQGRFSGSIRKQL\nKYVBTDRGPKOPOTPYR]T`Vb\nKYNBPDRGTKUPUTTYR]P`Nb\nJZRLRX RMOWU RWOMU\nE_RIR[ RIR[R\nNVSWRXQWRVSWSYQ[\nE_IR[R\nNVRVQWRXSWRV\nG][BIb\nH\\QFNGLJKOKRLWNZQ[S[VZXWYRYOXJVGSFQF\nH\\NJPISFS[\nH\\LKLJMHNGPFTFVGWHXJXLWNUQK[Y[\nH\\MFXFRNUNWOXPYSYUXXVZS[P[MZLYKW\nH\\UFKTZT RUFU[\nH\\WFMFLOMNPMSMVNXPYSYUXXVZS[P[MZLYKW\nH\\XIWGTFRFOGMJLOLTMXOZR[S[VZXXYUYTXQVOSNRNOOMQLT\nH\\YFO[ RKFYF\nH\\PFMGLILKMMONSOVPXRYTYWXYWZT[P[MZLYKWKTLRNPQOUNWMXKXIWGTFPF\nH\\XMWPURRSQSNRLPKMKLLINGQFRFUGWIXMXRWWUZR[P[MZLX\nNVROQPRQSPRO RRVQWRXSWRV\nNVROQPRQSPRO RSWRXQWRVSWSYQ[\nF^ZIJRZ[\nE_IO[O RIU[U\nF^JIZRJ[\nI[LKLJMHNGPFTFVGWHXJXLWNVORQRT RRYQZR[SZRY\nE`WNVLTKQKOLNMMPMSNUPVSVUUVS RQKOMNPNSOUPV RWKVSVUXVZV\\T]Q]O\\L[JYHWGTFQFNGLHJJILHOHRIUJWLYNZQ[T[WZYYZX RXKWSWUXV\nI[RFJ[ RRFZ[ RMTWT\nG\\KFK[ RKFTFWGXHYJYLXNWOTP RKPTPWQXRYTYWXYWZT[K[\nH]ZKYIWGUFQFOGMILKKNKSLVMXOZQ[U[WZYXZV\nG\\KFK[ RKFRFUGWIXKYNYSXVWXUZR[K[\nH[LFL[ RLFYF RLPTP RL[Y[\nHZLFL[ RLFYF RLPTP\nH]ZKYIWGUFQFOGMILKKNKSLVMXOZQ[U[WZYXZVZS RUSZS\nG]KFK[ RYFY[ RKPYP\nNVRFR[\nJZVFVVUYTZR[P[NZMYLVLT\nG\\KFK[ RYFKT RPOY[\nHYLFL[ RL[X[\nF^JFJ[ RJFR[ RZFR[ RZFZ[\nG]KFK[ RKFY[ RYFY[\nG]PFNGLIKKJNJSKVLXNZP[T[VZXXYVZSZNYKXIVGTFPF\nG\\KFK[ RKFTFWGXHYJYMXOWPTQKQ\nG]PFNGLIKKJNJSKVLXNZP[T[VZXXYVZSZNYKXIVGTFPF RSWY]\nG\\KFK[ RKFTFWGXHYJYLXNWOTPKP RRPY[\nH\\YIWGTFPFMGKIKKLMMNOOUQWRXSYUYXWZT[P[MZKX\nJZRFR[ RKFYF\nG]KFKULXNZQ[S[VZXXYUYF\nI[JFR[ RZFR[\nF^HFM[ RRFM[ RRFW[ R\\FW[\nH\\KFY[ RYFK[\nI[JFRPR[ RZFRP\nH\\YFK[ RKFYF RK[Y[\nKYOBOb RPBPb ROBVB RObVb\nKYKFY^\nKYTBTb RUBUb RNBUB RNbUb\nJZRDJR RRDZR\nI[Ib[b\nNVSKQMQORPSORNQO\nI\\XMX[ RXPVNTMQMONMPLSLUMXOZQ[T[VZXX\nH[LFL[ RLPNNPMSMUNWPXSXUWXUZS[P[NZLX\nI[XPVNTMQMONMPLSLUMXOZQ[T[VZXX\nI\\XFX[ RXPVNTMQMONMPLSLUMXOZQ[T[VZXX\nI[LSXSXQWOVNTMQMONMPLSLUMXOZQ[T[VZXX\nMYWFUFSGRJR[ ROMVM\nI\\XMX]W`VaTbQbOa RXPVNTMQMONMPLSLUMXOZQ[T[VZXX\nI\\MFM[ RMQPNRMUMWNXQX[\nNVQFRGSFREQF RRMR[\nMWRFSGTFSERF RSMS^RaPbNb\nIZMFM[ RWMMW RQSX[\nNVRFR[\nCaGMG[ RGQJNLMOMQNRQR[ RRQUNWMZM\\N]Q][\nI\\MMM[ RMQPNRMUMWNXQX[\nI\\QMONMPLSLUMXOZQ[T[VZXXYUYSXPVNTMQM\nH[LMLb RLPNNPMSMUNWPXSXUWXUZS[P[NZLX\nI\\XMXb RXPVNTMQMONMPLSLUMXOZQ[T[VZXX\nKXOMO[ ROSPPRNTMWM\nJ[XPWNTMQMNNMPNRPSUTWUXWXXWZT[Q[NZMX\nMYRFRWSZU[W[ ROMVM\nI\\MMMWNZP[S[UZXW RXMX[\nJZLMR[ RXMR[\nG]JMN[ RRMN[ RRMV[ RZMV[\nJ[MMX[ RXMM[\nJZLMR[ RXMR[P_NaLbKb\nJ[XMM[ RMMXM RM[X[\nKYTBRCQDPFPHQJRKSMSOQQ RRCQEQGRISJTLTNSPORSTTVTXSZR[Q]Q_Ra RQSSUSWRYQZP\\P^Q`RaTb\nNVRBRb\nKYPBRCSDTFTHSJRKQMQOSQ RRCSESGRIQJPLPNQPURQTPVPXQZR[S]S_Ra RSSQUQWRYSZT\\T^S`RaPb\nF^IUISJPLONOPPTSVTXTZS[Q RISJQLPNPPQTTVUXUZT[Q[O'
-ROMAN_COORDINATES = {'*': 'JZRFRR RMIWO RWIMO', ',': 'MWSZR[QZRYSZS\\R^Q_', '.': 'MWRYQZR[SZRY', ':': 'MWRMQNROSNRM RRYQZR[SZRY', ';': 'MWRMQNROSNRM RSZR[QZRYSZS\\R^Q_', '^': 'JZPLRITL RMORJWO RRJR[', '_': 'JZJ]Z]', '`': 'MWSFRGQIQKRLSKRJ'}
-MASK_COLS, MASK_ROWS = (180, 90)
-LANDMASK_B64 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//7//wAAAAAAAAAAAAAAAAAAAAAAB///////AA/wDwAAHgAAAAAAAAAAAHf//////4AB/gAAAAD+AAAAAAAAAAD/v/8////4AA/gAA+ADf4AGAAAAAAAH///4A///4AAAAAH4Af/8AP8AAAAAAH///+Af//wAAAAAeD////+H4AAwH/gf////4P//wAAD8AeH///////wRw//////9/4P//AAAP/nP//////////+///////3/H/wuAAf//////////////////////+H/B/AB//////////////Df/////7/8D8A8AP//////////////A//////gf8B4AAAP/////////////8A/8////wP+AAAAGP5///////////fQAHwB///8H/AAAAPD7/////////8B8AAeAB////v/wAAAfD//////////9B8AAAAB//////4AAAfv///////////B4AAAAAf/////4AAAX////////////AwAAAAAf/////8AAAH////////////gAAAAAAH/////8AAAH////////////AAAAAAAD/////gAAAB//7////////7gAAAAAAH////8AAAAf//7f///////3gAAAAAAH////wAAAAfy/////////+HAAAAAAAD///+AAAAAfi/////////+GAAAAAAAD///+AAAAAf/7////////+OAAAAAAAB///+AAAAAP/Bz///////n+AAAAAAAA///4AAAAAf/zB///////jwAAAAAAAAf//wAAAAAf//////////hAAAAAAAAAP/9wAAAAB///////////wAAAAAAAAAP/A8AAAAD///////////gAAAAAAAAAH/AcAAAAD///////////gAAAAACAAAD/B8AAAAH//////H///+gAAAAADgAAAfPeAAAAH//////B///wgAAAAABgAAAf+P8AAAH////v+A/j/wwAAAAAAAAAAP+EsAAAH/////+A/B/hwAAAAAAAAAABfgAAAAH/////4A+B/hwAAAAAAAAAAAPgwAAAH/////wAeAfg4AAAAAAAAAAADj/AAAH/////wAcAXh4AAAAAAAAAAAB//gAAD/////wAOAbDcAAAAAAAAAAAAf/4AAB/////gAOAcC8AAAAAAAAAAAAH/+AAAfv///gACB8HIAAAAAAAAAAAAP/+AAAAD///AAAA8/EAAAAAAAAAAAAf//AAAAD//+AAAAe/+AAAAAAAAAAAAf//wAAAD//8AAAAO/38AAAAAAAAAAAf//+AAAD//4AAAAPf//mAAAAAAAAAAf///gAAB//wAAAAHHw/vAAAAAAAAAAf///gAAA//wAAAAD8AX9wAAAAAAAAAP///gAAA//wAAAAAf8PcYAAAAAAAAAP///AAAA//4AAAAAA57cMAAAAAAAAAH///AAAA//5wAAAAAH7AAAAAAAAAAAH//+AAAB//7wAAAAAP7gBAgAAAAAAAB//+AAAB///wAAAAAf/wBDAAAAAAAAA//+AAAB//jgAAAAB//4ADAAAAAAAAA//8AAAA//HgAAAAH//4DAAAAAAAAAA//8AAAAf/HAAAAAP//8BAAAAAAAAAA//gAAAAf/HAAAAAP//+AAAAAAAAAAA//AAAAAf+AAAAAAP//+AAAAAAAAAAA//AAAAAP+AAAAAAH//+AAAAAAAAAAA/+AAAAAP8AAAAAAH//+AAAAAAAAAAA/8AAAAAP4AAAAAAH8/+AAAAAAAAAAB/8AAAAAGAAAAAAAHQf8AMAAAAAAAAB/wAAAAAAAAAAAAAAAH8APAAAAAAAAB/wAAAAAAAAAAAAAAADwAPAAAAAAAAD+AAAAAAAAAAAAAAAAA4AeAAAAAAAAD+AAAAAAAAAAAAAAAAA4A4AAAAAAAAD8AAAAAAAAAAAAAAAAAABwAAAAAAAAD8AAAAAAAAAAAAAAAAAABgAAAAAAAAD8AAAAAAAAAADAAAAAAAAAAAAAAAAADxwAAAAAAAAAAAAAAAAAAAAAAAAAAAD5gAAAAAAAAAAAAAAAAAAAAAAAAAAAB8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAHgAAAAAAAAOAAAGIAQAAAAAAAAAAAAOAAAAAAAAD/+D/////wAAAAAAAAAAA+AAAAAEsH//+///////wAAAAAAAPAD/AAAA///////////////wAAAAPkP///AAAH///////////////wAAD///////AAAf///////////////AAD///////wAgf///////////////+AAP//////+BD4/////////////////AAB////////v/////////////////4ABAf//////////////////////////g//////////////////////////////////////////////////////////////////////////////////////////'
-PAPER = (244, 239, 227)
-INK = (27, 27, 27)
-RED = (116, 31, 41)
-BLUE = (31, 78, 156)
-AMBER = (217, 142, 43)
-GREY = (88, 82, 74)
-RULE = (174, 164, 147)
-LAND = (116, 110, 99)
-EDGE = 28
-WIDTH = 1024 - 2 * EDGE
-GUTTER = 22
-COLUMN = (WIDTH - 2 * GUTTER) // 3
-SCALE = 3
-SIDE = 1024 * SCALE
 
-def parse_glyph(encoded):
+def decode_stroke_glyph(encoded):
+    """Read side bearings and pen-separated paths from a compact glyph."""
     left, right = (ord(c) - 82 for c in encoded[:2])
     strokes = []
     for stroke in encoded[2:].split(' R'):
@@ -33,17 +22,29 @@ def parse_glyph(encoded):
         if stroke:
             strokes.append(tuple(((ord(stroke[i]) - 82, ord(stroke[i + 1]) - 82) for i in range(0, len(stroke), 2))))
     return (left, right, tuple(strokes))
-SANS = {chr(i + 32): parse_glyph(s) for i, s in enumerate(SANS_COORDINATES.splitlines())}
+
+
+def scale_font_width(width, font):
+    """Scale horizontal bearings and vertices while retaining glyph height."""
+    return {c: (left * width, right * width, tuple((tuple(((x * width, y) for x, y in stroke)) for stroke in strokes))) for c, (left, right, strokes) in font.items()}
+
+
+SANS_COORDINATES = 'JZ\nMWRFRT RRYQZR[SZRY\nJZNFNM RVFVM\nH]SBLb RYBRb RLOZO RKUYU\nH\\PBP_ RTBT_ RYIWGTFPFMGKIKKLMMNOOUQWRXSYUYXWZT[P[MZKX\nF^[FI[ RNFPHPJOLMMKMIKIIJGLFNFPGSHVHYG[F RWTUUTWTYV[X[ZZ[X[VYTWT\nE_\\O\\N[MZMYNXPVUTXRZP[L[JZIYHWHUISJRQNRMSKSIRGPFNGMIMKNNPQUXWZY[[[\\Z\\Y\nMWRHQGRFSGSIRKQL\nKYVBTDRGPKOPOTPYR]T`Vb\nKYNBPDRGTKUPUTTYR]P`Nb\nJZRLRX RMOWU RWOMU\nE_RIR[ RIR[R\nNVSWRXQWRVSWSYQ[\nE_IR[R\nNVRVQWRXSWRV\nG][BIb\nH\\QFNGLJKOKRLWNZQ[S[VZXWYRYOXJVGSFQF\nH\\NJPISFS[\nH\\LKLJMHNGPFTFVGWHXJXLWNUQK[Y[\nH\\MFXFRNUNWOXPYSYUXXVZS[P[MZLYKW\nH\\UFKTZT RUFU[\nH\\WFMFLOMNPMSMVNXPYSYUXXVZS[P[MZLYKW\nH\\XIWGTFRFOGMJLOLTMXOZR[S[VZXXYUYTXQVOSNRNOOMQLT\nH\\YFO[ RKFYF\nH\\PFMGLILKMMONSOVPXRYTYWXYWZT[P[MZLYKWKTLRNPQOUNWMXKXIWGTFPF\nH\\XMWPURRSQSNRLPKMKLLINGQFRFUGWIXMXRWWUZR[P[MZLX\nNVROQPRQSPRO RRVQWRXSWRV\nNVROQPRQSPRO RSWRXQWRVSWSYQ[\nF^ZIJRZ[\nE_IO[O RIU[U\nF^JIZRJ[\nI[LKLJMHNGPFTFVGWHXJXLWNVORQRT RRYQZR[SZRY\nE`WNVLTKQKOLNMMPMSNUPVSVUUVS RQKOMNPNSOUPV RWKVSVUXVZV\\T]Q]O\\L[JYHWGTFQFNGLHJJILHOHRIUJWLYNZQ[T[WZYYZX RXKWSWUXV\nI[RFJ[ RRFZ[ RMTWT\nG\\KFK[ RKFTFWGXHYJYLXNWOTP RKPTPWQXRYTYWXYWZT[K[\nH]ZKYIWGUFQFOGMILKKNKSLVMXOZQ[U[WZYXZV\nG\\KFK[ RKFRFUGWIXKYNYSXVWXUZR[K[\nH[LFL[ RLFYF RLPTP RL[Y[\nHZLFL[ RLFYF RLPTP\nH]ZKYIWGUFQFOGMILKKNKSLVMXOZQ[U[WZYXZVZS RUSZS\nG]KFK[ RYFY[ RKPYP\nNVRFR[\nJZVFVVUYTZR[P[NZMYLVLT\nG\\KFK[ RYFKT RPOY[\nHYLFL[ RL[X[\nF^JFJ[ RJFR[ RZFR[ RZFZ[\nG]KFK[ RKFY[ RYFY[\nG]PFNGLIKKJNJSKVLXNZP[T[VZXXYVZSZNYKXIVGTFPF\nG\\KFK[ RKFTFWGXHYJYMXOWPTQKQ\nG]PFNGLIKKJNJSKVLXNZP[T[VZXXYVZSZNYKXIVGTFPF RSWY]\nG\\KFK[ RKFTFWGXHYJYLXNWOTPKP RRPY[\nH\\YIWGTFPFMGKIKKLMMNOOUQWRXSYUYXWZT[P[MZKX\nJZRFR[ RKFYF\nG]KFKULXNZQ[S[VZXXYUYF\nI[JFR[ RZFR[\nF^HFM[ RRFM[ RRFW[ R\\FW[\nH\\KFY[ RYFK[\nI[JFRPR[ RZFRP\nH\\YFK[ RKFYF RK[Y[\nKYOBOb RPBPb ROBVB RObVb\nKYKFY^\nKYTBTb RUBUb RNBUB RNbUb\nJZRDJR RRDZR\nI[Ib[b\nNVSKQMQORPSORNQO\nI\\XMX[ RXPVNTMQMONMPLSLUMXOZQ[T[VZXX\nH[LFL[ RLPNNPMSMUNWPXSXUWXUZS[P[NZLX\nI[XPVNTMQMONMPLSLUMXOZQ[T[VZXX\nI\\XFX[ RXPVNTMQMONMPLSLUMXOZQ[T[VZXX\nI[LSXSXQWOVNTMQMONMPLSLUMXOZQ[T[VZXX\nMYWFUFSGRJR[ ROMVM\nI\\XMX]W`VaTbQbOa RXPVNTMQMONMPLSLUMXOZQ[T[VZXX\nI\\MFM[ RMQPNRMUMWNXQX[\nNVQFRGSFREQF RRMR[\nMWRFSGTFSERF RSMS^RaPbNb\nIZMFM[ RWMMW RQSX[\nNVRFR[\nCaGMG[ RGQJNLMOMQNRQR[ RRQUNWMZM\\N]Q][\nI\\MMM[ RMQPNRMUMWNXQX[\nI\\QMONMPLSLUMXOZQ[T[VZXXYUYSXPVNTMQM\nH[LMLb RLPNNPMSMUNWPXSXUWXUZS[P[NZLX\nI\\XMXb RXPVNTMQMONMPLSLUMXOZQ[T[VZXX\nKXOMO[ ROSPPRNTMWM\nJ[XPWNTMQMNNMPNRPSUTWUXWXXWZT[Q[NZMX\nMYRFRWSZU[W[ ROMVM\nI\\MMMWNZP[S[UZXW RXMX[\nJZLMR[ RXMR[\nG]JMN[ RRMN[ RRMV[ RZMV[\nJ[MMX[ RXMM[\nJZLMR[ RXMR[P_NaLbKb\nJ[XMM[ RMMXM RM[X[\nKYTBRCQDPFPHQJRKSMSOQQ RRCQEQGRISJTLTNSPORSTTVTXSZR[Q]Q_Ra RQSSUSWRYQZP\\P^Q`RaTb\nNVRBRb\nKYPBRCSDTFTHSJRKQMQOSQ RRCSESGRIQJPLPNQPURQTPVPXQZR[S]S_Ra RSSQUQWRYSZT\\T^S`RaPb\nF^IUISJPLONOPPTSVTXTZS[Q RISJQLPNPPQTTVUXUZT[Q[O'
+# Roman punctuation overrides share the sans alphabet's compact encoding.
+ROMAN_PUNCTUATION = {'*': 'JZRFRR RMIWO RWIMO', ',': 'MWSZR[QZRYSZS\\R^Q_', '.': 'MWRYQZR[SZRY', ':': 'MWRMQNROSNRM RRYQZR[SZRY', ';': 'MWRMQNROSNRM RSZR[QZRYSZS\\R^Q_', '^': 'JZPLRITL RMORJWO RRJR[', '_': 'JZJ]Z]', '`': 'MWSFRGQIQKRLSKRJ'}
+# Packed land cells run west to east, then north to south.
+MASK_COLS, MASK_ROWS = (180, 90)
+LANDMASK_B64 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//7//wAAAAAAAAAAAAAAAAAAAAAAB///////AA/wDwAAHgAAAAAAAAAAAHf//////4AB/gAAAAD+AAAAAAAAAAD/v/8////4AA/gAA+ADf4AGAAAAAAAH///4A///4AAAAAH4Af/8AP8AAAAAAH///+Af//wAAAAAeD////+H4AAwH/gf////4P//wAAD8AeH///////wRw//////9/4P//AAAP/nP//////////+///////3/H/wuAAf//////////////////////+H/B/AB//////////////Df/////7/8D8A8AP//////////////A//////gf8B4AAAP/////////////8A/8////wP+AAAAGP5///////////fQAHwB///8H/AAAAPD7/////////8B8AAeAB////v/wAAAfD//////////9B8AAAAB//////4AAAfv///////////B4AAAAAf/////4AAAX////////////AwAAAAAf/////8AAAH////////////gAAAAAAH/////8AAAH////////////AAAAAAAD/////gAAAB//7////////7gAAAAAAH////8AAAAf//7f///////3gAAAAAAH////wAAAAfy/////////+HAAAAAAAD///+AAAAAfi/////////+GAAAAAAAD///+AAAAAf/7////////+OAAAAAAAB///+AAAAAP/Bz///////n+AAAAAAAA///4AAAAAf/zB///////jwAAAAAAAAf//wAAAAAf//////////hAAAAAAAAAP/9wAAAAB///////////wAAAAAAAAAP/A8AAAAD///////////gAAAAAAAAAH/AcAAAAD///////////gAAAAACAAAD/B8AAAAH//////H///+gAAAAADgAAAfPeAAAAH//////B///wgAAAAABgAAAf+P8AAAH////v+A/j/wwAAAAAAAAAAP+EsAAAH/////+A/B/hwAAAAAAAAAABfgAAAAH/////4A+B/hwAAAAAAAAAAAPgwAAAH/////wAeAfg4AAAAAAAAAAADj/AAAH/////wAcAXh4AAAAAAAAAAAB//gAAD/////wAOAbDcAAAAAAAAAAAAf/4AAB/////gAOAcC8AAAAAAAAAAAAH/+AAAfv///gACB8HIAAAAAAAAAAAAP/+AAAAD///AAAA8/EAAAAAAAAAAAAf//AAAAD//+AAAAe/+AAAAAAAAAAAAf//wAAAD//8AAAAO/38AAAAAAAAAAAf//+AAAD//4AAAAPf//mAAAAAAAAAAf///gAAB//wAAAAHHw/vAAAAAAAAAAf///gAAA//wAAAAD8AX9wAAAAAAAAAP///gAAA//wAAAAAf8PcYAAAAAAAAAP///AAAA//4AAAAAA57cMAAAAAAAAAH///AAAA//5wAAAAAH7AAAAAAAAAAAH//+AAAB//7wAAAAAP7gBAgAAAAAAAB//+AAAB///wAAAAAf/wBDAAAAAAAAA//+AAAB//jgAAAAB//4ADAAAAAAAAA//8AAAA//HgAAAAH//4DAAAAAAAAAA//8AAAAf/HAAAAAP//8BAAAAAAAAAA//gAAAAf/HAAAAAP//+AAAAAAAAAAA//AAAAAf+AAAAAAP//+AAAAAAAAAAA//AAAAAP+AAAAAAH//+AAAAAAAAAAA/+AAAAAP8AAAAAAH//+AAAAAAAAAAA/8AAAAAP4AAAAAAH8/+AAAAAAAAAAB/8AAAAAGAAAAAAAHQf8AMAAAAAAAAB/wAAAAAAAAAAAAAAAH8APAAAAAAAAB/wAAAAAAAAAAAAAAADwAPAAAAAAAAD+AAAAAAAAAAAAAAAAA4AeAAAAAAAAD+AAAAAAAAAAAAAAAAA4A4AAAAAAAAD8AAAAAAAAAAAAAAAAAABwAAAAAAAAD8AAAAAAAAAAAAAAAAAABgAAAAAAAAD8AAAAAAAAAADAAAAAAAAAAAAAAAAADxwAAAAAAAAAAAAAAAAAAAAAAAAAAAD5gAAAAAAAAAAAAAAAAAAAAAAAAAAAB8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAHgAAAAAAAAOAAAGIAQAAAAAAAAAAAAOAAAAAAAAD/+D/////wAAAAAAAAAAA+AAAAAEsH//+///////wAAAAAAAPAD/AAAA///////////////wAAAAPkP///AAAH///////////////wAAD///////AAAf///////////////AAD///////wAgf///////////////+AAP//////+BD4/////////////////AAB////////v/////////////////4ABAf//////////////////////////g//////////////////////////////////////////////////////////////////////////////////////////'
+
+SANS = {chr(i + 32): decode_stroke_glyph(s) for i, s in enumerate(SANS_COORDINATES.splitlines())}
 assert len(SANS) == 95
 SANS['·'] = (-5, 5, (((-0.7, 0), (0.7, 0)),))
 SANS['—'] = (-12, 12, (((-10, 0), (10, 0)),))
 ROMAN = dict(SANS)
-ROMAN.update({c: parse_glyph(s) for c, s in ROMAN_COORDINATES.items()})
+ROMAN.update({c: decode_stroke_glyph(s) for c, s in ROMAN_PUNCTUATION.items()})
 
-def condensed(width, font=SANS):
-    return {c: (left * width, right * width, tuple((tuple(((x * width, y) for x, y in stroke)) for stroke in strokes))) for c, (left, right, strokes) in font.items()}
-HEADLINE = condensed(0.72)
-TAG = condensed(0.86)
+HEADLINE = scale_font_width(0.72, SANS)
+TAG = scale_font_width(0.86, SANS)
 SERIF = dict(ROMAN)
 for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789':
     left, right, strokes = ROMAN[letter]
@@ -63,10 +64,45 @@ for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789':
     extra = tuple(stems) + serifs
     xs = [px for stroke in extra for px, _ in stroke]
     SERIF[letter] = (min(left, min(xs) - 1) if xs else left, max(right, max(xs) + 1) if xs else right, strokes + extra)
-MASTHEAD = condensed(0.82, SERIF)
-HERO_HEADLINE = condensed(0.72, SERIF)
+MASTHEAD = scale_font_width(0.82, SERIF)
+HERO_HEADLINE = scale_font_width(0.72, SERIF)
+
+def decode_land_cells():
+    """Validate and unpack the embedded 180-by-90 land bitmap."""
+    packed = base64.b64decode(LANDMASK_B64, validate=True)
+    assert len(packed) * 8 == MASK_COLS * MASK_ROWS
+    return packed
+
+
+# Editorial records precede the drawing classes so page content stays together.
+LEAD_STORIES = (('SHENZHEN SUMMIT', 'APEC 2026 · SHENZHEN · THREE-WAY PEACE DECLARATION', ('Trump, Xi and Putin', 'issue peace declaration'), "Unprecedented three-way meeting dominated APEC leaders' gathering.", 'FROM AP'), ('UKRAINE UNDER FIRE', 'KYIV · RUSSIA & UKRAINE · OVERNIGHT ATTACK', ('Russia launches', 'massive Ukraine attack'), 'Kyiv bridges struck hours after Trump-Putin Xi peace declaration.', 'BY REUTERS'), ('MARKETS IN ROUT', 'GLOBAL MARKETS · TECHNOLOGY & BUSINESS', ('Global stock rout', 'wipes nearly $9 trillion'), 'VIX hits 30, highest since late March, amid AI fears.', 'BY REUTERS'))
+WORLD_CARDS = (('EUROPE', 'LONDON', 'bridge', 'Britain and EU clinch trade deals', 'Summit reset still stuck on university tuition fee differences.', 'BY REUTERS'), ('MIDDLE EAST', 'RIYADH', 'missile', 'Houthis fire missiles at Riyadh', 'Coalition also intercepted five drones and a ballistic missile.', 'BY AP'), ('AFRICA', 'BADME', 'fist', 'Ethiopia and Eritrea mass troops', 'ACLED reports drone strikes near Badme; Eritrea denies buildup.', 'BY REUTERS'), ('ASIA', 'TAIPEI', 'chart', 'Taiwan stocks suffer worst week since 1990', 'AI selloff wipes more than 16 percent from benchmark index.', 'BY REUTERS'), ('AMERICAS', 'WASHINGTON', 'court', 'Senate rejects Iran war powers bid', 'Vote 51-48 defeats measure previously passed by House.', 'BY AP'), ('TECHNOLOGY & BUSINESS', 'NEW YORK', 'chart', 'Anthropic shares tumble 9%', 'AI valuation concerns weigh heavily on technology stocks.', 'BY REUTERS'), ('ASIA', 'TOKYO', 'chart', 'Japan inflation hits 2.6 percent', 'Prices remain in focus as Tokyo inflation reaches 2.6 percent.', 'BY REUTERS'), ('AFRICA', 'DAKAR', 'fist', 'Senegal party expels President Faye', 'Party expels President Faye in a fresh political rupture.', 'BY REUTERS'))
+DISPATCHES = (('ASIA', 'Japan inflation hits\n2.6 percent', 'TOKYO / REUTERS'), ('AMERICAS', '300 migrants cross\ninto southern Mexico', 'MEXICO / REUTERS'), ('AFRICA', 'Senegal party expels\nPresident Faye', 'DAKAR / REUTERS'), ('TECHNOLOGY & BUSINESS', 'OpenAI faces probe\nover rogue agents', 'ARIZONA / REUTERS'))
+BULLETINS = (('ASIA', 'Trump, Xi and Putin issue peace deal', (114.1, 22.5)), ('EUROPE', 'Russia violates Polish airspace three times', (19.1, 52.2)), ('EUROPE', 'France seeks UN meeting after Kyiv strikes', (2.3, 48.9)), ('RUSSIA & UKRAINE', 'Russia accuses Estonia of new Iron Curtain', (24.8, 59.4)), ('EUROPE', 'Italy strike draws thousands into streets', (12.5, 41.9)), ('EUROPE', 'de Villepin launches 2027 bid in Paris', (2.3, 48.9)), ('MIDDLE EAST', 'Houthi attacks worry over Saudi nuclear pact', (46.7, 24.7)), ('MIDDLE EAST', 'Two oil tankers hit mines in Hormuz', (56.3, 26.6)), ('MIDDLE EAST', 'Israeli strikes kill six in central Gaza', (34.4, 31.4)), ('AFRICA', 'Nigeria states approve state police change', (7.5, 9.1)), ('AFRICA', 'Bayelsa funeral barge capsizes', (6.1, 4.9)), ('AFRICA', 'South Sudan groups reject election delay', (31.6, 4.8)), ('ASIA', 'Xi hails China-Australia turnaround', (116.4, 39.9)), ('ASIA', 'Nepal PM Shah plans India visit', (85.3, 27.7)), ('ASIA', 'Malaysia to resettle 10,000 Rohingya', (101.7, 3.1)), ('AMERICAS', 'Virginia judge blocks Trump arch', (-77.4, 38.9)), ('AMERICAS', 'Florida carries out record 20th execution', (-84.3, 30.4)), ('AMERICAS', 'LatAm stocks tumble to one-year low', (-58.4, -15.0)), ('TECHNOLOGY & BUSINESS', 'Dollar index reaches 19-month high', (-74.0, 40.7)), ('TECHNOLOGY & BUSINESS', 'Gold falls 2 percent; copper weekly drop', (-74.0, 40.7)))
+REGION_CODES = dict(zip(('EUROPE', 'MIDDLE EAST', 'AMERICAS', 'AFRICA', 'ASIA', 'RUSSIA & UKRAINE', 'TECHNOLOGY & BUSINESS'), ('EU', 'ME', 'AM', 'AF', 'AS', 'RU', 'TB')))
+DESK_COLORS = {'EUROPE': (31, 78, 156), 'MIDDLE EAST': (136, 82, 20), 'AMERICAS': (164, 57, 48), 'AFRICA': (130, 52, 99), 'ASIA': (142, 65, 38), 'RUSSIA & UKRAINE': (48, 89, 112), 'TECHNOLOGY & BUSINESS': (39, 104, 91)}
+
+
+# Page geometry is expressed in output pixels; raster storage uses SCALE.
+PAPER = (244, 239, 227)
+INK = (27, 27, 27)
+RED = (116, 31, 41)
+BLUE = (31, 78, 156)
+AMBER = (217, 142, 43)
+GREY = (88, 82, 74)
+RULE = (174, 164, 147)
+LAND = (116, 110, 99)
+EDGE = 28
+WIDTH = 1024 - 2 * EDGE
+GUTTER = 22
+COLUMN = (WIDTH - 2 * GUTTER) // 3
+SCALE = 3
+SIDE = 1024 * SCALE
+CARD_WIDTH, CARD_HEIGHT, CARD_GAP = (226, 118, 64 / 3)
+
 
 class Page:
+    """Raster canvas with vector text bounds recorded for layout validation."""
 
     def __init__(self):
         self.pixels = bytearray(bytes(PAPER) * SIDE * SIDE)
@@ -194,12 +230,6 @@ def wrap(text, size, width, font):
         lines.append(current)
     assert all((measure(line, size, font) <= width for line in lines)), (text, size, width)
     return lines
-HEROES = (('SHENZHEN SUMMIT', 'APEC 2026 · SHENZHEN · THREE-WAY PEACE DECLARATION', ('Trump, Xi and Putin', 'issue peace declaration'), "Unprecedented three-way meeting dominated APEC leaders' gathering.", 'FROM AP'), ('UKRAINE UNDER FIRE', 'KYIV · RUSSIA & UKRAINE · OVERNIGHT ATTACK', ('Russia launches', 'massive Ukraine attack'), 'Kyiv bridges struck hours after Trump-Putin Xi peace declaration.', 'BY REUTERS'), ('MARKETS IN ROUT', 'GLOBAL MARKETS · TECHNOLOGY & BUSINESS', ('Global stock rout', 'wipes nearly $9 trillion'), 'VIX hits 30, highest since late March, amid AI fears.', 'BY REUTERS'))
-FEATURES = (('EUROPE', 'LONDON', 'bridge', 'Britain and EU clinch trade deals', 'Summit reset still stuck on university tuition fee differences.', 'BY REUTERS'), ('MIDDLE EAST', 'RIYADH', 'missile', 'Houthis fire missiles at Riyadh', 'Coalition also intercepted five drones and a ballistic missile.', 'BY AP'), ('AFRICA', 'BADME', 'fist', 'Ethiopia and Eritrea mass troops', 'ACLED reports drone strikes near Badme; Eritrea denies buildup.', 'BY REUTERS'), ('ASIA', 'TAIPEI', 'chart', 'Taiwan stocks suffer worst week since 1990', 'AI selloff wipes more than 16 percent from benchmark index.', 'BY REUTERS'), ('AMERICAS', 'WASHINGTON', 'court', 'Senate rejects Iran war powers bid', 'Vote 51-48 defeats measure previously passed by House.', 'BY AP'), ('TECHNOLOGY & BUSINESS', 'NEW YORK', 'chart', 'Anthropic shares tumble 9%', 'AI valuation concerns weigh heavily on technology stocks.', 'BY REUTERS'), ('ASIA', 'TOKYO', 'chart', 'Japan inflation hits 2.6 percent', 'Prices remain in focus as Tokyo inflation reaches 2.6 percent.', 'BY REUTERS'), ('AFRICA', 'DAKAR', 'fist', 'Senegal party expels President Faye', 'Party expels President Faye in a fresh political rupture.', 'BY REUTERS'))
-DISPATCHES = (('ASIA', 'Japan inflation hits\n2.6 percent', 'TOKYO / REUTERS'), ('AMERICAS', '300 migrants cross\ninto southern Mexico', 'MEXICO / REUTERS'), ('AFRICA', 'Senegal party expels\nPresident Faye', 'DAKAR / REUTERS'), ('TECHNOLOGY & BUSINESS', 'OpenAI faces probe\nover rogue agents', 'ARIZONA / REUTERS'))
-BULLETINS = (('ASIA', 'Trump, Xi and Putin issue peace deal', (114.1, 22.5)), ('EUROPE', 'Russia violates Polish airspace three times', (19.1, 52.2)), ('EUROPE', 'France seeks UN meeting after Kyiv strikes', (2.3, 48.9)), ('RUSSIA & UKRAINE', 'Russia accuses Estonia of new Iron Curtain', (24.8, 59.4)), ('EUROPE', 'Italy strike draws thousands into streets', (12.5, 41.9)), ('EUROPE', 'de Villepin launches 2027 bid in Paris', (2.3, 48.9)), ('MIDDLE EAST', 'Houthi attacks worry over Saudi nuclear pact', (46.7, 24.7)), ('MIDDLE EAST', 'Two oil tankers hit mines in Hormuz', (56.3, 26.6)), ('MIDDLE EAST', 'Israeli strikes kill six in central Gaza', (34.4, 31.4)), ('AFRICA', 'Nigeria states approve state police change', (7.5, 9.1)), ('AFRICA', 'Bayelsa funeral barge capsizes', (6.1, 4.9)), ('AFRICA', 'South Sudan groups reject election delay', (31.6, 4.8)), ('ASIA', 'Xi hails China-Australia turnaround', (116.4, 39.9)), ('ASIA', 'Nepal PM Shah plans India visit', (85.3, 27.7)), ('ASIA', 'Malaysia to resettle 10,000 Rohingya', (101.7, 3.1)), ('AMERICAS', 'Virginia judge blocks Trump arch', (-77.4, 38.9)), ('AMERICAS', 'Florida carries out record 20th execution', (-84.3, 30.4)), ('AMERICAS', 'LatAm stocks tumble to one-year low', (-58.4, -15.0)), ('TECHNOLOGY & BUSINESS', 'Dollar index reaches 19-month high', (-74.0, 40.7)), ('TECHNOLOGY & BUSINESS', 'Gold falls 2 percent; copper weekly drop', (-74.0, 40.7)))
-REGION_CODES = dict(zip(('EUROPE', 'MIDDLE EAST', 'AMERICAS', 'AFRICA', 'ASIA', 'RUSSIA & UKRAINE', 'TECHNOLOGY & BUSINESS'), ('EU', 'ME', 'AM', 'AF', 'AS', 'RU', 'TB')))
-DESK_COLORS = {'EUROPE': (31, 78, 156), 'MIDDLE EAST': (136, 82, 20), 'AMERICAS': (164, 57, 48), 'AFRICA': (130, 52, 99), 'ASIA': (142, 65, 38), 'RUSSIA & UKRAINE': (48, 89, 112), 'TECHNOLOGY & BUSINESS': (39, 104, 91)}
 
 def label(page, text, x, y, width, size=8, color=GREY, *, weight=2, font=TAG, tracking=0.38):
     left = round(x * SCALE) / SCALE
@@ -256,7 +286,8 @@ def stats_bar(page):
         check_bounds(page, first, x + 4, 145, cell - 8, 53)
     page.rect(EDGE, 202, WIDTH, 2, RED)
 
-class Illustration:
+class IllustrationFrame:
+    """Translate local artwork coordinates and enforce each frame's limits."""
 
     def __init__(self, page, x, y, width, height):
         self.page, self.x, self.y = (page, x, y)
@@ -299,7 +330,8 @@ class Illustration:
         centered(self.page, text, self.x + x, self.y + y, width, size, color, font=font, weight=weight)
         check_bounds(self.page, first, self.x + x, self.y + y, width, self.height - y)
 
-def summit_art(art):
+def draw_summit_portraits(art):
+    """Layer the summit backdrop, portraits, insignia, and nameplates."""
     backdrop = (39, 36, 44)
     cream, gold, scarlet = ((252, 242, 221), (242, 185, 79), (219, 70, 53))
     art.rect(0, 0, art.width, art.height, backdrop)
@@ -392,10 +424,11 @@ def climate_art(art):
     art.rect(25, 103, art.width - 50, 22, white)
     art.rect(25, 103, 3, 22, AMBER)
     first = len(art.page.text_boxes)
-    art.type('"leaves out the goal for fossil-fuel aid"', 33, 108, art.width - 66, 8.5, INK, font=condensed(0.9, ROMAN), weight=3)
+    art.type('"leaves out the goal for fossil-fuel aid"', 33, 108, art.width - 66, 8.5, INK, font=scale_font_width(0.9, ROMAN), weight=3)
     check_bounds(art.page, first, art.x + 33, art.y + 107, art.width - 66, 15)
 
-def casualty_art(art):
+def draw_ukraine_casualties(art):
+    """Pair the casualty figure with eight small human silhouettes."""
     art.rect(0, 0, art.width, art.height, (43, 39, 39))
     art.rect(0, 0, 5, art.height, RED)
     art.type('OVERNIGHT ATTACK · UKRAINE', 12, 12, art.width - 24, 8, PAPER)
@@ -407,7 +440,8 @@ def casualty_art(art):
     art.rect(15, 111, art.width - 30, 1, (140, 106, 99))
     art.type('KILLED IN UKRAINE', 15, 120, art.width - 30, 9, PAPER)
 
-def market_art(art):
+def draw_market_decline(art):
+    """Show the lost market value beside a descending equities arrow."""
     art.rect(0, 0, art.width, art.height, (41, 49, 53))
     art.rect(0, 0, 5, art.height, RED)
     art.type('GLOBAL EQUITIES · VALUE WIPED OUT', 12, 12, art.width - 24, 8, PAPER)
@@ -425,14 +459,15 @@ def section_header(page, title, right, y):
     width = measure(right, 8.5, TAG, 0.75)
     label(page, right, EDGE + WIDTH - width - 2, y + 1, width + 2, 8.5, tracking=0.75)
 
-def hero_row(page):
+def draw_lead_stories(page):
+    """Set the three illustrated leads and check their copy spacing."""
     section_header(page, 'THE FRONT PAGE', 'DIPLOMACY · CONFLICT · MARKETS', 214)
     art_top, bottom = (229, 510)
     column_rules(page, art_top, bottom - 6)
-    for index, ((title, caption, lines, detail, source), draw) in enumerate(zip(HEROES, (summit_art, casualty_art, market_art))):
+    for index, ((title, caption, lines, detail, source), draw) in enumerate(zip(LEAD_STORIES, (draw_summit_portraits, draw_ukraine_casualties, draw_market_decline))):
         x = EDGE + index * (COLUMN + GUTTER)
         first = len(page.text_boxes)
-        draw(Illustration(page, x, art_top, COLUMN, 138))
+        draw(IllustrationFrame(page, x, art_top, COLUMN, 138))
         copy_start = len(page.text_boxes)
         label(page, title, x, 373, COLUMN, 10, RED, weight=3, tracking=0.7)
         label(page, caption, x, 387, COLUMN, 7.3, tracking=0.25)
@@ -450,7 +485,8 @@ def hero_row(page):
         check_bounds(page, first, x, art_top, COLUMN, bottom - art_top)
         page.rendered.append(lines[0])
 
-def small_icon(art, icon, color):
+def draw_story_icon(art, icon, color):
+    """Draw a desk-colored symbol on the card's square paper inset."""
     art.rect(0, 0, 49, 49, (232, 223, 205))
     if icon == 'bridge':
         art.rect(6, 28, 37, 4, color)
@@ -492,12 +528,13 @@ def small_icon(art, icon, color):
         art.dot(24, 32, 5, color)
         art.rect(23, 29, 2, 6, PAPER)
 
-def secondary_grid(page):
+def draw_world_cards(page):
+    """Place eight city reports in two rows of four bounded cards."""
     page.rect(EDGE, 510, WIDTH, 3, RED)
     section_header(page, 'AROUND THE WORLD', 'EIGHT STORIES · CITY DISPATCHES', 523)
-    card_width, card_height, gap = (226, 118, 64 / 3)
-    assert len(FEATURES) == 8
-    for index, (desk, city, icon, headline, detail, source) in enumerate(FEATURES):
+    card_width, card_height, gap = (CARD_WIDTH, CARD_HEIGHT, CARD_GAP)
+    assert len(WORLD_CARDS) == 8
+    for index, (desk, city, icon, headline, detail, source) in enumerate(WORLD_CARDS):
         row, col = divmod(index, 4)
         x, y = (round((EDGE + col * (card_width + gap)) * SCALE) / SCALE, 544 + row * 119)
         first = len(page.text_boxes)
@@ -505,7 +542,7 @@ def secondary_grid(page):
         page.rect(x, y + 9, 3, 10, DESK_COLORS[desk])
         label(page, desk, x + 8, y + 10, card_width - 8, 6.7, DESK_COLORS[desk], weight=3, tracking=0.25)
         label(page, city, x, y + 21, card_width - 53, 7.2, GREY, tracking=0.8)
-        small_icon(Illustration(page, x + 177, y + 18, 49, 49), icon, DESK_COLORS[desk])
+        draw_story_icon(IllustrationFrame(page, x + 177, y + 18, 49, 49), icon, DESK_COLORS[desk])
         inner, headline_size, leading = (167, 11.5, 18)
         lines = wrap(headline, headline_size, inner - 3, HEADLINE)
         assert 1 <= len(lines) <= 3
@@ -518,7 +555,8 @@ def secondary_grid(page):
         check_bounds(page, first, x, y, card_width, card_height)
         page.rendered.append(headline)
 
-def dispatch_row(page):
+def draw_dispatch_strip(page):
+    """Lay out the compact dispatch strip with shared column dividers."""
     page.rect(EDGE, 727, WIDTH, 1, INK)
     cell = WIDTH / len(DISPATCHES)
     for index, (desk, headline, source) in enumerate(DISPATCHES):
@@ -535,11 +573,11 @@ def dispatch_row(page):
         check_bounds(page, first, x, 735, inner, 61)
         page.rendered.append(headline)
 
-def dot_map(page, x, y):
+def draw_region_map(page, x, y):
+    """Sample land dots and distribute sixteen numbered pins by region."""
     step = 1.45
     mw, mh = (MASK_COLS * step, MASK_ROWS * step)
-    packed = base64.b64decode(LANDMASK_B64, validate=True)
-    assert len(packed) * 8 == MASK_COLS * MASK_ROWS
+    packed = decode_land_cells()
     for row in range(0, MASK_ROWS, 2):
         for col in range(0, MASK_COLS, 2):
             bit = row * MASK_COLS + col
@@ -571,10 +609,11 @@ def dot_map(page, x, y):
     assert len(pins) == 16 and represented == set(groups)
     page.map_pins = len(pins)
 
-def ticker(page):
+def draw_bulletin_panel(page):
+    """Combine the numbered map with two columns of regional briefs."""
     page.rect(EDGE, 787, WIDTH, 3, RED)
     section_header(page, 'WHERE IT HAPPENED', '20 BRIEFS · MAP PINS MATCH REGION CODES', 800)
-    dot_map(page, EDGE, 827)
+    draw_region_map(page, EDGE, 827)
     label(page, 'REGION CENTROIDS · NATURAL EARTH 1:110M', EDGE, 959, 260, 6.0, tracking=0.15)
     for col, x in enumerate((307, 654)):
         page.rect(x - 9, 827, 0.5, 137, RULE)
@@ -595,27 +634,36 @@ def footer(page):
     centered(page, 'DATE CHECK: Every story on this paper happened on or before 20 Nov 2026', EDGE, 987, WIDTH, 8.8, INK, weight=2, tracking=0.22)
     centered(page, 'SOURCES: REUTERS, AP, AFP, BBC, AL JAZEERA, CNN, NBC, TIMES OF INDIA, GUARDIAN — 2026-11-20', EDGE, 1003, WIDTH, 8, GREY, font=TAG, tracking=0.32)
 
-def main():
+def compose_edition():
+    """Paint the edition in its original layer order and validate the copy."""
     page = Page()
-    count = sum(map(len, (HEROES, FEATURES, BULLETINS)))
+    count = sum(map(len, (LEAD_STORIES, WORLD_CARDS, BULLETINS)))
     masthead(page, count)
     stats_bar(page)
-    hero_row(page)
-    secondary_grid(page)
-    ticker(page)
+    draw_lead_stories(page)
+    draw_world_cards(page)
+    draw_bulletin_panel(page)
     footer(page)
     assert len(page.rendered) == len(set(page.rendered)) == count == 31
     for i, (a, box) in enumerate(page.text_boxes):
         for b, other in page.text_boxes[i + 1:]:
             overlap = min(box[2], other[2]) > max(box[0], other[0]) and min(box[3], other[3]) > max(box[1], other[1])
             assert not overlap, ('text overlap', a, b, box, other)
+    return page
+
+
+def main():
+    """Serialize the checked edition and report the resulting PNG digest."""
+    page = compose_edition()
     png = page.png()
     assert len(png) <= 1048576
     output = os.environ.get('MAKEFUN_OUTPUT_DIR', '/output')
     os.makedirs(output, exist_ok=True)
     path = os.path.join(output, 'entry.png')
-    with open(path, 'wb') as f:
-        f.write(png)
-    print(json.dumps({'output': path, 'bytes': len(png), 'sha256': hashlib.sha256(png).hexdigest(), 'stories': len(page.rendered), 'cards': len(FEATURES), 'ticker_items': len(BULLETINS), 'map_pins': page.map_pins, 'width': 1024, 'height': 1024, 'text_bounds_checked': len(page.text_boxes), 'layout': 'The World in One Day newspaper front page'}, sort_keys=True))
+    with open(path, 'wb') as output_file:
+        output_file.write(png)
+    print(json.dumps({'output': path, 'bytes': len(png), 'sha256': hashlib.sha256(png).hexdigest(), 'stories': len(page.rendered), 'cards': len(WORLD_CARDS), 'ticker_items': len(BULLETINS), 'map_pins': page.map_pins, 'width': 1024, 'height': 1024, 'text_bounds_checked': len(page.text_boxes), 'layout': 'The World in One Day newspaper front page'}, sort_keys=True))
+
+
 if __name__ == '__main__':
     main()
