@@ -6,6 +6,7 @@ import json as reporting
 import math as geometry
 import os as filesystem
 import struct as binary
+import time as timing
 import zlib as deflate
 
 
@@ -330,40 +331,69 @@ DESKS = {
     'TECHNOLOGY & BUSINESS': ('TB', (39, 104, 91)),
 }
 
+# Editorial map: source IDs in news20_data_v2.json (all 69 accounted for).
+# HERO: 25 Shenzhen; 1 Ukraine casualties; 45 Wall Street correction.
+# HERO CHART: 38 global $9tn rout; 47 bitcoin two-year low (full BTC series).
+# CARDS: 7 London; 13 Riyadh; 20 Badme; 61 Taipei (updates 27);
+# 35 Washington; 46 New York; 21 Dakar; 66 Lima; 68 Nairobi; 51 Kryvyi Rih.
+# TICKER 01-24: 48,3,4,6,49,50,8,9,58,60,52,55,56,57,17,63,
+# 64,65,26,29,69,33,34,40. Each number also identifies its map pin.
+# STATS-ONLY reports: 28 Tokyo CPI; 30 Rohingya; 37 Anthropic IPO;
+# 39 Asia-Pacific weekly loss; 43 gold decline. Total distinct reports: 44.
+# OMITTED: 2 summit reaction; 5 Estonia; 10 Spain police; 11 bail;
+# 12 Danish plot (follow-up 58 used); 14 Iran deal (duplicate 67);
+# 15 Iraq (updated 57); 16 Gaza (newer 56 used); 18 Hormuz (newer 55);
+# 19 Bayelsa (updated 63); 22 state police; 23 Ebola; 24 election delay;
+# 27 Taiwan (updated 61); 31 caravan; 32 Guyana; 36 LatAm;
+# 41 GTA; 42 dollar; 44 data centers; 53 Hodeidah (covered by 13);
+# 54 F-16; 59 Paris investigation; 62 summit analysis; 67 Iran deal.
+# Source facts are supplied editorial data; headlines shortened for measured fit.
+BTC = (('2026-11-14', 64142.0), ('2026-11-15', 65226.99),
+       ('2026-11-16', 64869.97), ('2026-11-17', 64930.48),
+       ('2026-11-18', 62824.57), ('2026-11-19', 61773.0),
+       ('2026-11-20', 61879.53), ('2026-11-21', 55830.0))
+EXTRA_REPORTS = (28, 30, 37, 38, 39, 43, 47)
+
 # Records are field-delimited editorial copy, independent of layout commands.
 LEADS = '''SHENZHEN SUMMIT|APEC 2026 · SHENZHEN · THREE-WAY PEACE DECLARATION|Trump, Xi and Putin/issue peace declaration|Unprecedented three-way meeting dominated APEC leaders' gathering.|FROM AP
 UKRAINE UNDER FIRE|KYIV · RUSSIA & UKRAINE · OVERNIGHT ATTACK|Russia launches/massive Ukraine attack|Kyiv bridges struck hours after Trump-Putin Xi peace declaration.|BY REUTERS
-MARKETS IN ROUT|GLOBAL MARKETS · TECHNOLOGY & BUSINESS|Global stock rout/wipes nearly $9 trillion|VIX hits 30, highest since late March, amid AI fears.|BY REUTERS'''
+MARKETS IN ROUT|WALL STREET · TECHNOLOGY & BUSINESS|S&P and Dow enter/correction territory|Nasdaq plunges 5.3 percent, worst week since 2020.|BY REUTERS'''
 
-CITY_COPY = '''EUROPE|LONDON|bridge|Britain and EU clinch trade deals|Summit reset still stuck on university tuition fee differences.|BY REUTERS
-MIDDLE EAST|RIYADH|missile|Houthis fire missiles at Riyadh|Coalition also intercepted five drones and a ballistic missile.|BY AP
-AFRICA|BADME|fist|Ethiopia and Eritrea mass troops|ACLED reports drone strikes near Badme; Eritrea denies buildup.|BY REUTERS
-ASIA|TAIPEI|chart|Taiwan stocks suffer worst week since 1990|AI selloff wipes more than 16 percent from benchmark index.|BY REUTERS
-AMERICAS|WASHINGTON|court|Senate rejects Iran war powers bid|Vote 51-48 defeats measure previously passed by House.|BY AP
-TECHNOLOGY & BUSINESS|NEW YORK|chart|Anthropic shares tumble 9%|AI valuation concerns weigh heavily on technology stocks.|BY REUTERS
-ASIA|TOKYO|chart|Japan inflation hits 2.6 percent|Prices remain in focus as Tokyo inflation reaches 2.6 percent.|BY REUTERS
-AFRICA|DAKAR|fist|Senegal party expels President Faye|Party expels President Faye in a fresh political rupture.|BY REUTERS'''
+CITY_COPY = '''EUROPE|LONDON|TRADE|Britain-EU food trade and youth mobility deals|Summit reset still stuck on university tuition fee differences.|BY REUTERS
+MIDDLE EAST|RIYADH|CONFLICT|Houthis fire missiles at Riyadh|Coalition also intercepted five drones and a ballistic missile.|BY AP
+AFRICA|BADME|BORDER|Ethiopia and Eritrea mass troops on border|ACLED reports drone strikes near Badme; Eritrea denies buildup.|BY REUTERS
+ASIA|TAIPEI|STOCKS|Taiwan shares post worst week since 1990|Index down 17 percent for week on AI rout.|BY REUTERS
+AMERICAS|WASHINGTON|SENATE|Senate rejects Iran war powers resolution|Vote 51-48 defeats measure previously passed by House.|BY AP
+TECHNOLOGY & BUSINESS|NEW YORK|CHIPS|Nvidia tumbles 14 percent on SEC probe report|Chip index falls 11 percent in broad AI retreat.|BY REUTERS
+AFRICA|DAKAR|POLITICS|Senegal ruling party expels President Faye|Pastef action follows feud with party leader Ousmane Sonko.|BY REUTERS
+AMERICAS|LIMA|QUAKE|Magnitude 6.8 earthquake strikes central Peru|Quake felt in Lima, no immediate reports of damage.|BY REUTERS
+AFRICA|NAIROBI|ENERGY|Dangote breaks ground on $16bn Kenyan refinery|Project aims to cut East Africa's fuel import costs.|BY REUTERS
+RUSSIA & UKRAINE|KRYVYI RIH|ATTACK|Russia fires 148 drones and missiles overnight|Kryvyi Rih strike kills child and paramedic, dozens hurt.|BY REUTERS'''
 
-BRIEF_COPY = '''ASIA|Trump, Xi and Putin issue peace deal
-EUROPE|Russia violates Polish airspace three times
-EUROPE|France seeks UN meeting after Kyiv strikes
-RUSSIA & UKRAINE|Russia accuses Estonia of new Iron Curtain
-EUROPE|Italy strike draws thousands into streets
-EUROPE|de Villepin launches 2027 bid in Paris
-MIDDLE EAST|Houthi attacks worry over Saudi nuclear pact
-MIDDLE EAST|Two oil tankers hit mines in Hormuz
-MIDDLE EAST|Israeli strikes kill six in central Gaza
-AFRICA|Nigeria states approve state police change
-AFRICA|Bayelsa funeral barge capsizes
-AFRICA|South Sudan groups reject election delay
-ASIA|Xi hails China-Australia turnaround
-ASIA|Nepal PM Shah plans India visit
-ASIA|Malaysia to resettle 10,000 Rohingya
-AMERICAS|Virginia judge blocks Trump arch
-AMERICAS|Florida carries out record 20th execution
-AMERICAS|LatAm stocks tumble to one-year low
-TECHNOLOGY & BUSINESS|Dollar index reaches 19-month high
-TECHNOLOGY & BUSINESS|Gold falls 2 percent; copper weekly drop'''
+BRIEF_COPY = '''RUSSIA & UKRAINE|NATO to defend every inch of Poland|REUTERS
+RUSSIA & UKRAINE|Poland condemns 3 airspace violations|REUTERS
+RUSSIA & UKRAINE|France seeks UN meeting on Kyiv strikes|REUTERS
+RUSSIA & UKRAINE|Ukraine strikes Crimean bridge logistics|REUTERS
+RUSSIA & UKRAINE|Zelenskiy: Trump says EU spends too much|REUTERS
+RUSSIA & UKRAINE|Kaliningrad-bound ship hit by drones|REUTERS
+EUROPE|Thousands join Italy general strike|REUTERS
+EUROPE|de Villepin launches 2027 election bid|REUTERS
+EUROPE|Denmark urges EU Russian travel curbs|REUTERS
+EUROPE|France disappointed by EU budget draft|REUTERS
+MIDDLE EAST|Qatari delegation in Tehran for war talks|REUTERS
+MIDDLE EAST|Two tankers hit near Strait of Hormuz|REUTERS
+MIDDLE EAST|Gaza food truck strike kills three|AP
+MIDDLE EAST|Iraqi forces enter militia stronghold|AP
+MIDDLE EAST|Houthi attacks worry Saudi nuclear pact|REUTERS
+AFRICA|Bayelsa boat capsizes; at least four dead|REUTERS
+AFRICA|Mlambo-Ngcuka dies at 71|REUTERS
+AFRICA|Somali pirates killed five tanker crew|REUTERS
+ASIA|Xi hails China-Australia turnaround|REUTERS
+ASIA|Nepal PM Shah to visit India, meet Modi|REUTERS
+ASIA|US AI chip curbs took effect as Xi met Trump|REUTERS
+AMERICAS|Virginia judge to block Trump arch|AP
+AMERICAS|Florida carries out 20th execution|AP
+TECHNOLOGY & BUSINESS|OpenAI faces Arizona criminal probe|REUTERS'''
 
 
 def records(copy):
@@ -542,13 +572,19 @@ def equities_program(board):
     board.draw(('r', 0, 0, board.width, board.height, (41, 49, 53)),
                ('r', 0, 0, 5, board.height, 'red'),
                ('t', 'GLOBAL EQUITIES · VALUE WIPED OUT', 12, 12, board.width - 24, 8, 'paper'),
-               ('t', '$9tn', 12, 34, 144, 43, 'paper', dict(face='narrow', thickness=6)))
-    board.draw(*(('l', [(169, scan), (289, scan)], (78, 86, 88), 2)
-                 for scan in [42, 65, 88]))
-    board.draw(('l', [(177, 36), (177, 51), (278, 92)], (225, 138, 118), 6),
-               ('p', [(263, 91), (283, 97), (278, 77)], (225, 138, 118)),
+               ('t', '$9tn', 10, 35, 125, 37, 'paper', dict(face='narrow', thickness=6)))
+    values = [close for date, close in BTC]
+    low, high = min(values), max(values)
+    points = [(151 + i * 20, 38 + (high - value) / (high - low) * 52)
+              for i, value in enumerate(values)]
+    board.draw(*(('l', [(147, scan), (294, scan)], (78, 86, 88), 2)
+                 for scan in [38, 64, 90]))
+    board.draw(('l', points, 'paper', 4),
+               ('d', *points[values.index(low)], 4, 'red'),
+               ('d', *points[-1], 2, 'amber'),
+               ('t', 'BTC 14-21 NOV · $55,830', 140, 99, 160, 6.6, 'amber'),
                ('r', 15, 111, board.width - 30, 1, (105, 116, 119)),
-               ('t', 'VIX 30 · AI FEARS HIT STOCKS', 15, 120, board.width - 30, 9, 'paper'))
+               ('t', 'VIX 30 · BITCOIN TWO-YEAR LOW', 15, 120, board.width - 30, 8.3, 'paper'))
 
 
 def pictogram(board, subject, shade):
@@ -606,30 +642,35 @@ class Newspaper:
 
     def nameplate(self):
         t, s = self.type, self.scene
-        story_total = len(records(LEADS)) + len(records(CITY_COPY)) + len(records(BRIEF_COPY))
-        banner = f'THE WORLD IN ONE DAY · {story_total} STORIES · ACROSS THE GLOBE'
+        story_total = len(records(LEADS)) + len(records(CITY_COPY)) + len(records(BRIEF_COPY)) + len(EXTRA_REPORTS)
+        banner = f'48 HOURS · {story_total} STORIES · 7 REGIONS'
         t.put(banner, MARGIN, 23, 783, 10, 'red', spacing=.7)
         t.put('WORLD EDITION', 872, 23, 124, 10, spacing=.7)
-        t.put('FRIDAY 20 NOVEMBER 2026', MARGIN, 51, LIVE_WIDTH, 44, 'ink',
+        t.put('FRIDAY 20-21 NOVEMBER 2026:', MARGIN, 47, LIVE_WIDTH, 32, 'ink',
+              thickness=9, face='mast', spacing=1, align='center')
+        t.put('THE WORLD IN TWO DAYS', MARGIN, 88, LIVE_WIDTH, 30, 'ink',
               thickness=9, face='mast', spacing=1.5, align='center')
         for top, height in [(128, 4), (136, 1)]:
             s.box(MARGIN, top, LIVE_WIDTH, height, 'red')
-        metrics = records('''3|PEACE DECLARATION
-8|KILLED IN UKRAINE
-$9tn|MARKET ROUT
-$93.5bn|ANTHROPIC IPO
+        delta = (BTC[-1][1] / BTC[0][1] - 1) * 100
+        metrics = records(f'''$55,830|BTC {delta:+.2f}% / 7D
+-8.3%|ASIA-PACIFIC / WEEK
+$93.5bn|ANTHROPIC IPO / -9%
 51-48|IRAN WAR POWERS
-2.6%|TOKYO INFLATION
-10,000|ROHINGYA RESETTLED''')
+2.6%|TOKYO CPI / DEC BOJ
+10,000|ROHINGYA / TURKEY
+-2%|GOLD / COPPER FALLS
+-5.3%|NASDAQ / AI RETREAT''')
         cell_width = LIVE_WIDTH / len(metrics)
         for position, (figure, caption) in enumerate(metrics):
             left = MARGIN + position * cell_width
             if position != 0:
                 s.box(left, 145, .5, 49, 'rule')
-            t.put(figure, left + 4, 147, cell_width - 8, 27,
-                  'blue' if position % 2 else 'red', thickness=5,
+            t.put(figure, left + 4, 147, cell_width - 8, 22,
+                  'amber' if position == 0 else ('blue' if position % 2 else 'red'), thickness=5,
                   face='narrow', spacing=0, align='center')
-            t.put(caption, left + 4, 187, cell_width - 8, 8, spacing=.4, align='center')
+            t.put(caption, left + 4, 187, cell_width - 8, 6.5,
+                  'amber' if position == 0 else 'grey', spacing=.12, align='center')
         s.box(MARGIN, 202, LIVE_WIDTH, 2, 'red')
 
     def front_page(self):
@@ -661,32 +702,36 @@ $93.5bn|ANTHROPIC IPO
 
     def city_reports(self):
         self.scene.box(MARGIN, 510, LIVE_WIDTH, 3, 'red')
-        self.section('AROUND THE WORLD', 'EIGHT STORIES · CITY DISPATCHES', 523)
+        self.section('AROUND THE WORLD', 'TEN DISPATCHES · TWO DAYS', 523)
         for ordinal, fields in enumerate(records(CITY_COPY)):
-            desk, city, symbol, title, description, source = fields
-            row, column = divmod(ordinal, 4)
-            left = device(MARGIN + column * (226 + 64 / 3)) / ZOOM
+            desk, city, topic, title, description, source = fields
+            row, column = divmod(ordinal, 5)
+            width = 180
+            left = MARGIN + column * 197
             top = 544 + row * 119
             shade = DESKS[desk][1]
             first = len(self.scene.copy_bounds)
-            self.scene.box(left, top, 226, 2, 'red')
-            self.scene.box(left, top + 9, 3, 10, shade)
-            self.type.put(desk, left + 8, top + 10, 218, 6.7,
-                          shade, thickness=3, spacing=.25)
-            self.type.put(city, left, top + 21, 173, 7.2, spacing=.8)
-            pictogram(Artboard(self, (left + 177, top + 18), (49, 49)), symbol, shade)
-            headline_rows = self.type.paragraphs(title, 11.5, 164, 'narrow')
+            self.scene.box(left, top, width, 2, 'red')
+            city_width = self.type.extent(city, 6.8, 'tag', .3) + 10
+            self.scene.box(left, top + 8, city_width, 13, 'red')
+            self.type.put(city, left + 4, top + 11, city_width - 8, 6.8,
+                          'paper', thickness=2, spacing=.3)
+            self.scene.box(left + city_width + 5, top + 8,
+                           width - city_width - 5, 13, (232, 223, 205))
+            self.type.put(topic, left + city_width + 8, top + 11,
+                          width - city_width - 11, 6.2, shade, spacing=.15)
+            headline_rows = self.type.paragraphs(title, 10.5, width - 2, 'narrow')
             assert 1 <= len(headline_rows) <= 3
             for line_number, words in enumerate(headline_rows):
-                self.type.put(words, left, top + 31 + line_number * 18, 167, 11.5,
+                self.type.put(words, left, top + 26 + line_number * 18, width, 10.5,
                               'ink', thickness=3, face='narrow', spacing=0)
-            description_top = top + 31 + len(headline_rows) * 18 + 2
-            for line_number, words in enumerate(self.type.paragraphs(description, 6.3, 224, 'tag')):
+            description_top = top + 26 + len(headline_rows) * 18 + 3
+            for line_number, words in enumerate(self.type.paragraphs(description, 6.5, width - 2, 'tag')):
                 self.type.put(words, left, description_top + line_number * 11,
-                              226, 6.3, spacing=0)
-            self.type.credit(source, left, 226, top + 118)
+                              width, 6.5, spacing=0)
+            self.type.credit(source, left, width, top + 118)
             for words, (west, north, east, south) in self.scene.copy_bounds[first:]:
-                assert left <= west < east <= left + 226, words
+                assert left <= west < east <= left + width, words
                 assert top <= north < south <= top + 118, words
             self.scene.stories.append(title)
 
@@ -702,7 +747,7 @@ $93.5bn|ANTHROPIC IPO
                     self.scene.circle(left + (easting + .5) * spacing,
                                       top + (northing + .5) * spacing, .55, 'land')
         clusters = {}
-        for ordinal, (desk, headline) in enumerate(records(BRIEF_COPY), start=1):
+        for ordinal, (desk, headline, outlet) in enumerate(records(BRIEF_COPY), start=1):
             clusters.setdefault(desk, []).append(ordinal)
         anchors = {
             'ASIA': (195, 35, 220, 63), 'EUROPE': (125, 14, 150, 28),
@@ -716,6 +761,7 @@ $93.5bn|ANTHROPIC IPO
                 if rank < len(numbers):
                     ordered.append((desk, numbers[rank], rank))
         occupied = []
+        pinned_regions = set()
         for desk, ordinal, rank in ordered[:16]:
             west, north, east, south = anchors[desk]
             column, row = rank % 2, rank // 2
@@ -725,6 +771,7 @@ $93.5bn|ANTHROPIC IPO
             py = top + north + row * (south - north) + column * 2 + vertical_jitter
             assert all(geometry.hypot(px - u, py - v) >= 12 for u, v in occupied)
             occupied.append((px, py))
+            pinned_regions.add(desk)
             self.scene.circle(px, py, 2.5, DESKS[desk][1])
             digits = format(ordinal, '02d')
             self.type.put(digits, px + 4 + 1, py - 4 + 1, 15, 6.7,
@@ -733,37 +780,39 @@ $93.5bn|ANTHROPIC IPO
             self.type.put(digits, px + 4, py - 4, 15, 6.7,
                           'ink', thickness=3, spacing=0)
         self.scene.pin_count = len(occupied)
+        assert pinned_regions == set(DESKS)
 
     def briefs(self):
         self.scene.box(MARGIN, 787, LIVE_WIDTH, 3, 'red')
-        self.section('WHERE IT HAPPENED', '20 BRIEFS · MAP PINS MATCH REGION CODES', 800)
+        self.section('WHERE IT HAPPENED', '24 BRIEFS · 16 PINS · 7 REGIONS', 800)
         self.locator(MARGIN, 827)
         self.type.put('REGION CENTROIDS · NATURAL EARTH 1:110M', MARGIN, 959,
                       260, 6, spacing=.15)
         news = records(BRIEF_COPY)
         for column, left in enumerate([307, 654]):
             self.scene.box(left - 9, 827, .5, 137, 'rule')
-            for row in range(10):
-                ordinal = column * 10 + row
-                desk, headline = news[ordinal]
+            for row in range(12):
+                ordinal = column * 12 + row
+                desk, headline, outlet = news[ordinal]
                 code, shade = DESKS[desk]
-                top = 830 + row * 14
+                top = 825 + row * 12
                 self.scene.box(left, top, 2, 8, shade)
                 self.type.put(format(ordinal + 1, '02d'), left + 5, top, 16, 7, spacing=0)
                 self.type.put(code, left + 24, top, 17, 7, shade, thickness=3, spacing=0)
-                self.type.put(headline, left + 45, top, 292 + 5 * column, 7.3,
-                              'ink', spacing=0)
+                self.type.put(headline + ' · ' + outlet, left + 45, top,
+                              292 + 5 * column, 7.2, 'ink', face='narrow', spacing=0)
                 self.scene.stories.append(headline)
 
     def colophon(self):
         self.scene.box(MARGIN, 971, LIVE_WIDTH, 2, 'red')
         self.scene.box(MARGIN, 975, LIVE_WIDTH, .5, 'rule')
-        checks = 'DATE CHECK: Every story on this paper happened on or before 20 Nov 2026'
-        sources = ('SOURCES: REUTERS, AP, AFP, BBC, AL JAZEERA, CNN, NBC, '
-                   'TIMES OF INDIA, GUARDIAN — 2026-11-20')
-        self.type.put(checks, MARGIN, 987, LIVE_WIDTH, 8.8, 'ink', face='body',
+        checks = 'DATE CHECK: Reports through 21 Nov 2026 · Edition covers 20-21 November 2026'
+        sources = 'SOURCES: REUTERS · AP | BTC CLOSES: 14-21 NOVEMBER 2026'
+        self.type.put(checks, MARGIN, 981, LIVE_WIDTH, 8.2, 'ink', face='body',
                       spacing=.22, align='center')
-        self.type.put(sources, MARGIN, 1003, LIVE_WIDTH, 8, spacing=.32, align='center')
+        self.type.put(sources, MARGIN, 995, LIVE_WIDTH, 7.2, spacing=.32, align='center')
+        self.type.put('TOMORROW: watch for Iraq militia withdrawal follow-up · Jurf al-Sakhar deadline within a month (AP)',
+                      MARGIN, 1008, LIVE_WIDTH, 7.3, 'red', spacing=.15, align='center')
 
     def finish(self):
         self.nameplate()
@@ -771,10 +820,13 @@ $93.5bn|ANTHROPIC IPO
         self.city_reports()
         self.briefs()
         self.colophon()
-        assert len(self.scene.stories) == len(set(self.scene.stories)) == 31
+        self.scene.stories.extend(f'SOURCE REPORT {identity}' for identity in EXTRA_REPORTS)
+        assert len(self.scene.stories) == len(set(self.scene.stories)) == 44
+        assert len(records(CITY_COPY)) == 10 and len(records(BRIEF_COPY)) == 24
         assert self.scene.pin_count == 16
-        assert len(self.scene.copy_bounds) == 188
         for index, (words, bounds) in enumerate(self.scene.copy_bounds):
+            assert 0 <= bounds[0] < bounds[2] <= RESOLUTION, (words, bounds)
+            assert 0 <= bounds[1] < bounds[3] <= RESOLUTION, (words, bounds)
             for other_words, other_bounds in self.scene.copy_bounds[index + 1:]:
                 shared_width = min(bounds[2], other_bounds[2]) - max(bounds[0], other_bounds[0])
                 shared_height = min(bounds[3], other_bounds[3]) - max(bounds[1], other_bounds[1])
@@ -787,6 +839,7 @@ def build_edition():
 
 
 def run_press():
+    started = timing.perf_counter()
     edition = build_edition()
     machine = RasterPress()
     machine.paint(edition.operations)
@@ -803,6 +856,7 @@ def run_press():
           sha256=digests.sha256(image_bytes).hexdigest(), lines=authored_lines,
           stories=len(edition.stories), map_pins=edition.pin_count,
           cards=len(records(CITY_COPY)), ticker_items=len(records(BRIEF_COPY)),
+          heroes=len(records(LEADS)), runtime_seconds=round(timing.perf_counter() - started, 3),
           text_bounds_checked=len(edition.copy_bounds), width=RESOLUTION,
           height=RESOLUTION), sort_keys=True))
 
