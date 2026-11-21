@@ -1,669 +1,811 @@
-"""Draw the 20 November 2026 world-news edition from embedded vector assets.
+"""A display-list typesetter and deterministic raster press for a daily edition."""
 
-The standard-library renderer builds a three-times-resolution RGB canvas,
-checks the typography, then averages each nine-pixel block into the final PNG.
-"""
-
-# Asset decoding, geometry, image serialization, and output reporting.
-import base64
-import hashlib
-import json
-import math
-import os
-import struct
-import zlib
-
-def decode_stroke_glyph(encoded):
-    """Read side bearings and pen-separated paths from a compact glyph."""
-    left, right = (ord(c) - 82 for c in encoded[:2])
-    strokes = []
-    for stroke in encoded[2:].split(' R'):
-        assert len(stroke) % 2 == 0
-        if stroke:
-            strokes.append(tuple(((ord(stroke[i]) - 82, ord(stroke[i + 1]) - 82) for i in range(0, len(stroke), 2))))
-    return (left, right, tuple(strokes))
+import base64 as radix
+import hashlib as digests
+import json as reporting
+import math as geometry
+import os as filesystem
+import struct as binary
+import zlib as deflate
 
 
-def scale_font_width(width, font):
-    """Scale horizontal bearings and vertices while retaining glyph height."""
-    return {c: (left * width, right * width, tuple((tuple(((x * width, y) for x, y in stroke)) for stroke in strokes))) for c, (left, right, strokes) in font.items()}
+RESOLUTION = 1 << 10
+ZOOM = 3
+RASTER_EDGE = RESOLUTION * ZOOM
+COLORS = {
+    'paper': (244, 239, 227), 'ink': (27, 27, 27),
+    'red': (116, 31, 41), 'blue': (31, 78, 156),
+    'amber': (217, 142, 43), 'grey': (88, 82, 74),
+    'rule': (174, 164, 147), 'land': (116, 110, 99),
+}
+MARGIN, LIVE_WIDTH, LEAD_WIDTH = 28, 968, 308
 
 
-SANS_COORDINATES = 'JZ\nMWRFRT RRYQZR[SZRY\nJZNFNM RVFVM\nH]SBLb RYBRb RLOZO RKUYU\nH\\PBP_ RTBT_ RYIWGTFPFMGKIKKLMMNOOUQWRXSYUYXWZT[P[MZKX\nF^[FI[ RNFPHPJOLMMKMIKIIJGLFNFPGSHVHYG[F RWTUUTWTYV[X[ZZ[X[VYTWT\nE_\\O\\N[MZMYNXPVUTXRZP[L[JZIYHWHUISJRQNRMSKSIRGPFNGMIMKNNPQUXWZY[[[\\Z\\Y\nMWRHQGRFSGSIRKQL\nKYVBTDRGPKOPOTPYR]T`Vb\nKYNBPDRGTKUPUTTYR]P`Nb\nJZRLRX RMOWU RWOMU\nE_RIR[ RIR[R\nNVSWRXQWRVSWSYQ[\nE_IR[R\nNVRVQWRXSWRV\nG][BIb\nH\\QFNGLJKOKRLWNZQ[S[VZXWYRYOXJVGSFQF\nH\\NJPISFS[\nH\\LKLJMHNGPFTFVGWHXJXLWNUQK[Y[\nH\\MFXFRNUNWOXPYSYUXXVZS[P[MZLYKW\nH\\UFKTZT RUFU[\nH\\WFMFLOMNPMSMVNXPYSYUXXVZS[P[MZLYKW\nH\\XIWGTFRFOGMJLOLTMXOZR[S[VZXXYUYTXQVOSNRNOOMQLT\nH\\YFO[ RKFYF\nH\\PFMGLILKMMONSOVPXRYTYWXYWZT[P[MZLYKWKTLRNPQOUNWMXKXIWGTFPF\nH\\XMWPURRSQSNRLPKMKLLINGQFRFUGWIXMXRWWUZR[P[MZLX\nNVROQPRQSPRO RRVQWRXSWRV\nNVROQPRQSPRO RSWRXQWRVSWSYQ[\nF^ZIJRZ[\nE_IO[O RIU[U\nF^JIZRJ[\nI[LKLJMHNGPFTFVGWHXJXLWNVORQRT RRYQZR[SZRY\nE`WNVLTKQKOLNMMPMSNUPVSVUUVS RQKOMNPNSOUPV RWKVSVUXVZV\\T]Q]O\\L[JYHWGTFQFNGLHJJILHOHRIUJWLYNZQ[T[WZYYZX RXKWSWUXV\nI[RFJ[ RRFZ[ RMTWT\nG\\KFK[ RKFTFWGXHYJYLXNWOTP RKPTPWQXRYTYWXYWZT[K[\nH]ZKYIWGUFQFOGMILKKNKSLVMXOZQ[U[WZYXZV\nG\\KFK[ RKFRFUGWIXKYNYSXVWXUZR[K[\nH[LFL[ RLFYF RLPTP RL[Y[\nHZLFL[ RLFYF RLPTP\nH]ZKYIWGUFQFOGMILKKNKSLVMXOZQ[U[WZYXZVZS RUSZS\nG]KFK[ RYFY[ RKPYP\nNVRFR[\nJZVFVVUYTZR[P[NZMYLVLT\nG\\KFK[ RYFKT RPOY[\nHYLFL[ RL[X[\nF^JFJ[ RJFR[ RZFR[ RZFZ[\nG]KFK[ RKFY[ RYFY[\nG]PFNGLIKKJNJSKVLXNZP[T[VZXXYVZSZNYKXIVGTFPF\nG\\KFK[ RKFTFWGXHYJYMXOWPTQKQ\nG]PFNGLIKKJNJSKVLXNZP[T[VZXXYVZSZNYKXIVGTFPF RSWY]\nG\\KFK[ RKFTFWGXHYJYLXNWOTPKP RRPY[\nH\\YIWGTFPFMGKIKKLMMNOOUQWRXSYUYXWZT[P[MZKX\nJZRFR[ RKFYF\nG]KFKULXNZQ[S[VZXXYUYF\nI[JFR[ RZFR[\nF^HFM[ RRFM[ RRFW[ R\\FW[\nH\\KFY[ RYFK[\nI[JFRPR[ RZFRP\nH\\YFK[ RKFYF RK[Y[\nKYOBOb RPBPb ROBVB RObVb\nKYKFY^\nKYTBTb RUBUb RNBUB RNbUb\nJZRDJR RRDZR\nI[Ib[b\nNVSKQMQORPSORNQO\nI\\XMX[ RXPVNTMQMONMPLSLUMXOZQ[T[VZXX\nH[LFL[ RLPNNPMSMUNWPXSXUWXUZS[P[NZLX\nI[XPVNTMQMONMPLSLUMXOZQ[T[VZXX\nI\\XFX[ RXPVNTMQMONMPLSLUMXOZQ[T[VZXX\nI[LSXSXQWOVNTMQMONMPLSLUMXOZQ[T[VZXX\nMYWFUFSGRJR[ ROMVM\nI\\XMX]W`VaTbQbOa RXPVNTMQMONMPLSLUMXOZQ[T[VZXX\nI\\MFM[ RMQPNRMUMWNXQX[\nNVQFRGSFREQF RRMR[\nMWRFSGTFSERF RSMS^RaPbNb\nIZMFM[ RWMMW RQSX[\nNVRFR[\nCaGMG[ RGQJNLMOMQNRQR[ RRQUNWMZM\\N]Q][\nI\\MMM[ RMQPNRMUMWNXQX[\nI\\QMONMPLSLUMXOZQ[T[VZXXYUYSXPVNTMQM\nH[LMLb RLPNNPMSMUNWPXSXUWXUZS[P[NZLX\nI\\XMXb RXPVNTMQMONMPLSLUMXOZQ[T[VZXX\nKXOMO[ ROSPPRNTMWM\nJ[XPWNTMQMNNMPNRPSUTWUXWXXWZT[Q[NZMX\nMYRFRWSZU[W[ ROMVM\nI\\MMMWNZP[S[UZXW RXMX[\nJZLMR[ RXMR[\nG]JMN[ RRMN[ RRMV[ RZMV[\nJ[MMX[ RXMM[\nJZLMR[ RXMR[P_NaLbKb\nJ[XMM[ RMMXM RM[X[\nKYTBRCQDPFPHQJRKSMSOQQ RRCQEQGRISJTLTNSPORSTTVTXSZR[Q]Q_Ra RQSSUSWRYQZP\\P^Q`RaTb\nNVRBRb\nKYPBRCSDTFTHSJRKQMQOSQ RRCSESGRIQJPLPNQPURQTPVPXQZR[S]S_Ra RSSQUQWRYSZT\\T^S`RaPb\nF^IUISJPLONOPPTSVTXTZS[Q RISJQLPNPPQTTVUXUZT[Q[O'
-# Roman punctuation overrides share the sans alphabet's compact encoding.
-ROMAN_PUNCTUATION = {'*': 'JZRFRR RMIWO RWIMO', ',': 'MWSZR[QZRYSZS\\R^Q_', '.': 'MWRYQZR[SZRY', ':': 'MWRMQNROSNRM RRYQZR[SZRY', ';': 'MWRMQNROSNRM RSZR[QZRYSZS\\R^Q_', '^': 'JZPLRITL RMORJWO RRJR[', '_': 'JZJ]Z]', '`': 'MWSFRGQIQKRLSKRJ'}
-# Packed land cells run west to east, then north to south.
-MASK_COLS, MASK_ROWS = (180, 90)
-LANDMASK_B64 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//7//wAAAAAAAAAAAAAAAAAAAAAAB///////AA/wDwAAHgAAAAAAAAAAAHf//////4AB/gAAAAD+AAAAAAAAAAD/v/8////4AA/gAA+ADf4AGAAAAAAAH///4A///4AAAAAH4Af/8AP8AAAAAAH///+Af//wAAAAAeD////+H4AAwH/gf////4P//wAAD8AeH///////wRw//////9/4P//AAAP/nP//////////+///////3/H/wuAAf//////////////////////+H/B/AB//////////////Df/////7/8D8A8AP//////////////A//////gf8B4AAAP/////////////8A/8////wP+AAAAGP5///////////fQAHwB///8H/AAAAPD7/////////8B8AAeAB////v/wAAAfD//////////9B8AAAAB//////4AAAfv///////////B4AAAAAf/////4AAAX////////////AwAAAAAf/////8AAAH////////////gAAAAAAH/////8AAAH////////////AAAAAAAD/////gAAAB//7////////7gAAAAAAH////8AAAAf//7f///////3gAAAAAAH////wAAAAfy/////////+HAAAAAAAD///+AAAAAfi/////////+GAAAAAAAD///+AAAAAf/7////////+OAAAAAAAB///+AAAAAP/Bz///////n+AAAAAAAA///4AAAAAf/zB///////jwAAAAAAAAf//wAAAAAf//////////hAAAAAAAAAP/9wAAAAB///////////wAAAAAAAAAP/A8AAAAD///////////gAAAAAAAAAH/AcAAAAD///////////gAAAAACAAAD/B8AAAAH//////H///+gAAAAADgAAAfPeAAAAH//////B///wgAAAAABgAAAf+P8AAAH////v+A/j/wwAAAAAAAAAAP+EsAAAH/////+A/B/hwAAAAAAAAAABfgAAAAH/////4A+B/hwAAAAAAAAAAAPgwAAAH/////wAeAfg4AAAAAAAAAAADj/AAAH/////wAcAXh4AAAAAAAAAAAB//gAAD/////wAOAbDcAAAAAAAAAAAAf/4AAB/////gAOAcC8AAAAAAAAAAAAH/+AAAfv///gACB8HIAAAAAAAAAAAAP/+AAAAD///AAAA8/EAAAAAAAAAAAAf//AAAAD//+AAAAe/+AAAAAAAAAAAAf//wAAAD//8AAAAO/38AAAAAAAAAAAf//+AAAD//4AAAAPf//mAAAAAAAAAAf///gAAB//wAAAAHHw/vAAAAAAAAAAf///gAAA//wAAAAD8AX9wAAAAAAAAAP///gAAA//wAAAAAf8PcYAAAAAAAAAP///AAAA//4AAAAAA57cMAAAAAAAAAH///AAAA//5wAAAAAH7AAAAAAAAAAAH//+AAAB//7wAAAAAP7gBAgAAAAAAAB//+AAAB///wAAAAAf/wBDAAAAAAAAA//+AAAB//jgAAAAB//4ADAAAAAAAAA//8AAAA//HgAAAAH//4DAAAAAAAAAA//8AAAAf/HAAAAAP//8BAAAAAAAAAA//gAAAAf/HAAAAAP//+AAAAAAAAAAA//AAAAAf+AAAAAAP//+AAAAAAAAAAA//AAAAAP+AAAAAAH//+AAAAAAAAAAA/+AAAAAP8AAAAAAH//+AAAAAAAAAAA/8AAAAAP4AAAAAAH8/+AAAAAAAAAAB/8AAAAAGAAAAAAAHQf8AMAAAAAAAAB/wAAAAAAAAAAAAAAAH8APAAAAAAAAB/wAAAAAAAAAAAAAAADwAPAAAAAAAAD+AAAAAAAAAAAAAAAAA4AeAAAAAAAAD+AAAAAAAAAAAAAAAAA4A4AAAAAAAAD8AAAAAAAAAAAAAAAAAABwAAAAAAAAD8AAAAAAAAAAAAAAAAAABgAAAAAAAAD8AAAAAAAAAADAAAAAAAAAAAAAAAAADxwAAAAAAAAAAAAAAAAAAAAAAAAAAAD5gAAAAAAAAAAAAAAAAAAAAAAAAAAAB8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAHgAAAAAAAAOAAAGIAQAAAAAAAAAAAAOAAAAAAAAD/+D/////wAAAAAAAAAAA+AAAAAEsH//+///////wAAAAAAAPAD/AAAA///////////////wAAAAPkP///AAAH///////////////wAAD///////AAAf///////////////AAD///////wAgf///////////////+AAP//////+BD4/////////////////AAB////////v/////////////////4ABAf//////////////////////////g//////////////////////////////////////////////////////////////////////////////////////////'
-
-SANS = {chr(i + 32): decode_stroke_glyph(s) for i, s in enumerate(SANS_COORDINATES.splitlines())}
-assert len(SANS) == 95
-SANS['·'] = (-5, 5, (((-0.7, 0), (0.7, 0)),))
-SANS['—'] = (-12, 12, (((-10, 0), (10, 0)),))
-ROMAN = dict(SANS)
-ROMAN.update({c: decode_stroke_glyph(s) for c, s in ROMAN_PUNCTUATION.items()})
-
-HEADLINE = scale_font_width(0.72, SANS)
-TAG = scale_font_width(0.86, SANS)
-SERIF = dict(ROMAN)
-for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789':
-    left, right, strokes = ROMAN[letter]
-    terminals, stems = (set(), [])
-    for stroke in strokes:
-        if len(stroke) < 2:
-            continue
-        for (px, py), (qx, qy) in ((stroke[0], stroke[1]), (stroke[-1], stroke[-2])):
-            if py in (-12, -5, 9) and abs(qy - py) >= 3:
-                terminals.add((px, py))
-        for (px, py), (qx, qy) in zip(stroke, stroke[1:]):
-            if abs(qx - px) <= 1 and abs(qy - py) >= 5:
-                stems.append(((px + 0.65, py), (qx + 0.65, qy)))
-    serifs = tuple((((px - 2.5, py), (px + 2.5, py)) for px, py in sorted(terminals)))
-    if letter in '0235689':
-        serifs += tuple((((px, py - 2), (px, py + 2)) for stroke in strokes if len(stroke) > 2 for px, py in (stroke[0], stroke[-1]) if stroke[0] != stroke[-1]))
-    extra = tuple(stems) + serifs
-    xs = [px for stroke in extra for px, _ in stroke]
-    SERIF[letter] = (min(left, min(xs) - 1) if xs else left, max(right, max(xs) + 1) if xs else right, strokes + extra)
-MASTHEAD = scale_font_width(0.82, SERIF)
-HERO_HEADLINE = scale_font_width(0.72, SERIF)
-
-def decode_land_cells():
-    """Validate and unpack the embedded 180-by-90 land bitmap."""
-    packed = base64.b64decode(LANDMASK_B64, validate=True)
-    assert len(packed) * 8 == MASK_COLS * MASK_ROWS
-    return packed
+def pigment(value):
+    return COLORS[value] if isinstance(value, str) else value
 
 
-# Editorial records precede the drawing classes so page content stays together.
-LEAD_STORIES = (('SHENZHEN SUMMIT', 'APEC 2026 · SHENZHEN · THREE-WAY PEACE DECLARATION', ('Trump, Xi and Putin', 'issue peace declaration'), "Unprecedented three-way meeting dominated APEC leaders' gathering.", 'FROM AP'), ('UKRAINE UNDER FIRE', 'KYIV · RUSSIA & UKRAINE · OVERNIGHT ATTACK', ('Russia launches', 'massive Ukraine attack'), 'Kyiv bridges struck hours after Trump-Putin Xi peace declaration.', 'BY REUTERS'), ('MARKETS IN ROUT', 'GLOBAL MARKETS · TECHNOLOGY & BUSINESS', ('Global stock rout', 'wipes nearly $9 trillion'), 'VIX hits 30, highest since late March, amid AI fears.', 'BY REUTERS'))
-WORLD_CARDS = (('EUROPE', 'LONDON', 'bridge', 'Britain and EU clinch trade deals', 'Summit reset still stuck on university tuition fee differences.', 'BY REUTERS'), ('MIDDLE EAST', 'RIYADH', 'missile', 'Houthis fire missiles at Riyadh', 'Coalition also intercepted five drones and a ballistic missile.', 'BY AP'), ('AFRICA', 'BADME', 'fist', 'Ethiopia and Eritrea mass troops', 'ACLED reports drone strikes near Badme; Eritrea denies buildup.', 'BY REUTERS'), ('ASIA', 'TAIPEI', 'chart', 'Taiwan stocks suffer worst week since 1990', 'AI selloff wipes more than 16 percent from benchmark index.', 'BY REUTERS'), ('AMERICAS', 'WASHINGTON', 'court', 'Senate rejects Iran war powers bid', 'Vote 51-48 defeats measure previously passed by House.', 'BY AP'), ('TECHNOLOGY & BUSINESS', 'NEW YORK', 'chart', 'Anthropic shares tumble 9%', 'AI valuation concerns weigh heavily on technology stocks.', 'BY REUTERS'), ('ASIA', 'TOKYO', 'chart', 'Japan inflation hits 2.6 percent', 'Prices remain in focus as Tokyo inflation reaches 2.6 percent.', 'BY REUTERS'), ('AFRICA', 'DAKAR', 'fist', 'Senegal party expels President Faye', 'Party expels President Faye in a fresh political rupture.', 'BY REUTERS'))
-DISPATCHES = (('ASIA', 'Japan inflation hits\n2.6 percent', 'TOKYO / REUTERS'), ('AMERICAS', '300 migrants cross\ninto southern Mexico', 'MEXICO / REUTERS'), ('AFRICA', 'Senegal party expels\nPresident Faye', 'DAKAR / REUTERS'), ('TECHNOLOGY & BUSINESS', 'OpenAI faces probe\nover rogue agents', 'ARIZONA / REUTERS'))
-BULLETINS = (('ASIA', 'Trump, Xi and Putin issue peace deal', (114.1, 22.5)), ('EUROPE', 'Russia violates Polish airspace three times', (19.1, 52.2)), ('EUROPE', 'France seeks UN meeting after Kyiv strikes', (2.3, 48.9)), ('RUSSIA & UKRAINE', 'Russia accuses Estonia of new Iron Curtain', (24.8, 59.4)), ('EUROPE', 'Italy strike draws thousands into streets', (12.5, 41.9)), ('EUROPE', 'de Villepin launches 2027 bid in Paris', (2.3, 48.9)), ('MIDDLE EAST', 'Houthi attacks worry over Saudi nuclear pact', (46.7, 24.7)), ('MIDDLE EAST', 'Two oil tankers hit mines in Hormuz', (56.3, 26.6)), ('MIDDLE EAST', 'Israeli strikes kill six in central Gaza', (34.4, 31.4)), ('AFRICA', 'Nigeria states approve state police change', (7.5, 9.1)), ('AFRICA', 'Bayelsa funeral barge capsizes', (6.1, 4.9)), ('AFRICA', 'South Sudan groups reject election delay', (31.6, 4.8)), ('ASIA', 'Xi hails China-Australia turnaround', (116.4, 39.9)), ('ASIA', 'Nepal PM Shah plans India visit', (85.3, 27.7)), ('ASIA', 'Malaysia to resettle 10,000 Rohingya', (101.7, 3.1)), ('AMERICAS', 'Virginia judge blocks Trump arch', (-77.4, 38.9)), ('AMERICAS', 'Florida carries out record 20th execution', (-84.3, 30.4)), ('AMERICAS', 'LatAm stocks tumble to one-year low', (-58.4, -15.0)), ('TECHNOLOGY & BUSINESS', 'Dollar index reaches 19-month high', (-74.0, 40.7)), ('TECHNOLOGY & BUSINESS', 'Gold falls 2 percent; copper weekly drop', (-74.0, 40.7)))
-REGION_CODES = dict(zip(('EUROPE', 'MIDDLE EAST', 'AMERICAS', 'AFRICA', 'ASIA', 'RUSSIA & UKRAINE', 'TECHNOLOGY & BUSINESS'), ('EU', 'ME', 'AM', 'AF', 'AS', 'RU', 'TB')))
-DESK_COLORS = {'EUROPE': (31, 78, 156), 'MIDDLE EAST': (136, 82, 20), 'AMERICAS': (164, 57, 48), 'AFRICA': (130, 52, 99), 'ASIA': (142, 65, 38), 'RUSSIA & UKRAINE': (48, 89, 112), 'TECHNOLOGY & BUSINESS': (39, 104, 91)}
+def device(value):
+    return round(ZOOM * value)
 
 
-# Page geometry is expressed in output pixels; raster storage uses SCALE.
-PAPER = (244, 239, 227)
-INK = (27, 27, 27)
-RED = (116, 31, 41)
-BLUE = (31, 78, 156)
-AMBER = (217, 142, 43)
-GREY = (88, 82, 74)
-RULE = (174, 164, 147)
-LAND = (116, 110, 99)
-EDGE = 28
-WIDTH = 1024 - 2 * EDGE
-GUTTER = 22
-COLUMN = (WIDTH - 2 * GUTTER) // 3
-SCALE = 3
-SIDE = 1024 * SCALE
-CARD_WIDTH, CARD_HEIGHT, CARD_GAP = (226, 118, 64 / 3)
-
-
-class Page:
-    """Raster canvas with vector text bounds recorded for layout validation."""
+class DisplayList:
+    """Collect geometry before allocating or painting the raster surface."""
 
     def __init__(self):
-        self.pixels = bytearray(bytes(PAPER) * SIDE * SIDE)
-        self.text_boxes = []
-        self.rendered = []
+        self.operations = []
+        self.copy_bounds = []
+        self.stories = []
+        self.pin_count = 0
 
-    def rect(self, x, y, w, h, color):
-        x0, y0, x1, y1 = (round(v * SCALE) for v in (x, y, x + w, y + h))
-        assert 0 <= x0 <= x1 <= SIDE and 0 <= y0 <= y1 <= SIDE
-        row = bytes(color) * (x1 - x0)
-        for yy in range(y0, y1):
-            start = (yy * SIDE + x0) * 3
-            self.pixels[start:start + len(row)] = row
+    def box(self, left, top, width, height, shade):
+        edges = tuple(map(device, (left, top, left + width, top + height)))
+        self.operations.append(('box', edges, pigment(shade)))
 
-    def dot(self, x, y, radius, color):
-        for dy in range(-round(radius * SCALE), round(radius * SCALE) + 1):
-            half_width = math.sqrt(max(0, (radius * SCALE) ** 2 - dy ** 2))
-            span = math.floor(half_width)
-            self.rect((round(x * SCALE) - span) / SCALE, (round(y * SCALE) + dy) / SCALE, (2 * span + 1) / SCALE, 1 / SCALE, color)
+    def circle(self, cx, cy, radius, shade):
+        self.operations.append(('disc', (device(cx), device(cy), radius * ZOOM), pigment(shade)))
 
-    def line(self, x0, y0, x1, y1, color, weight):
-        return self.polyline(((x0, y0), (x1, y1)), color, max(1, round(weight * SCALE / 2)))
+    def trace(self, vertices, shade, thickness):
+        self.operations.append(('pen', (tuple(vertices), thickness), pigment(shade)))
 
-    def polyline(self, points, color, weight):
-        return self.stroke_pixels(tuple(((round(x * SCALE), round(y * SCALE)) for x, y in points)), color, weight)
+    def segment(self, begin, finish, shade, thickness=3):
+        vertices = tuple((device(a), device(b)) for a, b in (begin, finish))
+        self.trace(vertices, shade, max(1, round(thickness * ZOOM / 2)))
 
-    def stroke_pixels(self, points, color, weight):
-        assert len(points) >= 2 and weight >= 1
-        rgb = bytes(color)
-        offsets = range(-(weight // 2), -(weight // 2) + weight)
-        radius = weight / 2
-        left = top = SIDE
-        right = bottom = 0
 
-        def pixel(px, py):
-            nonlocal left, top, right, bottom
-            assert 0 <= px < SIDE and 0 <= py < SIDE
-            pos = (py * SIDE + px) * 3
-            self.pixels[pos:pos + 3] = rgb
-            left, top = (min(left, px), min(top, py))
-            right, bottom = (max(right, px + 1), max(bottom, py + 1))
-        for (x0, y0), (x1, y1) in zip(points, points[1:]):
-            dx, dy = (abs(x1 - x0), -abs(y1 - y0))
-            steep = abs(y1 - y0) > abs(x1 - x0)
-            sx, sy = (1 if x0 < x1 else -1, 1 if y0 < y1 else -1)
-            err = dx + dy
+class RasterPress:
+    """Interpret three drawing instructions on an integer RGB backing store."""
+
+    def __init__(self):
+        self.buffer = bytearray(bytes(COLORS['paper']) * (RASTER_EDGE ** 2))
+
+    def span(self, y, first, stop, rgb):
+        assert 0 <= first <= stop <= RASTER_EDGE
+        assert 0 <= y < RASTER_EDGE
+        address = 3 * (y * RASTER_EDGE + first)
+        self.buffer[address:address + 3 * (stop - first)] = rgb * (stop - first)
+
+    def dab(self, x, y, rgb):
+        self.span(y, x, x + 1, rgb)
+
+    def pen(self, vertices, diameter, rgb):
+        negative = -(diameter // 2)
+        brush = range(negative, negative + diameter)
+        for start, end in zip(vertices[:-1], vertices[1:]):
+            horizontal, vertical = start
+            target_x, target_y = end
+            run = abs(target_x - horizontal)
+            fall = -abs(target_y - vertical)
+            vertical_brush = -fall <= run
+            direction_x = 1 if horizontal < target_x else -1
+            direction_y = 1 if vertical < target_y else -1
+            balance = run + fall
             while True:
-                for offset in offsets:
-                    pixel(x0 + offset if steep else x0, y0 if steep else y0 + offset)
-                if x0 == x1 and y0 == y1:
+                for displacement in brush:
+                    px = horizontal if vertical_brush else horizontal + displacement
+                    py = vertical + displacement if vertical_brush else vertical
+                    self.dab(px, py, rgb)
+                if (horizontal, vertical) == end:
                     break
-                e = 2 * err
-                if e >= dy:
-                    err += dy
-                    x0 += sx
-                if e <= dx:
-                    err += dx
-                    y0 += sy
-        extent = math.floor(radius)
-        for cx, cy in points:
-            for oy in range(-extent, extent + 1):
-                span = math.floor(math.sqrt(max(0, radius * radius - oy * oy)))
-                for ox in range(-span, span + 1):
-                    pixel(cx + ox, cy + oy)
-        return (left, top, right, bottom)
+                doubled = balance * 2
+                if doubled >= fall:
+                    balance = balance + fall
+                    horizontal = horizontal + direction_x
+                if doubled <= run:
+                    balance = balance + run
+                    vertical = vertical + direction_y
+        cap_radius = diameter / 2
+        cap_limit = geometry.floor(cap_radius)
+        for horizontal, vertical in vertices:
+            for offset in range(-cap_limit, cap_limit + 1):
+                reach = geometry.floor(geometry.sqrt(max(0, cap_radius ** 2 - offset ** 2)))
+                self.span(vertical + offset, horizontal - reach, horizontal + reach + 1, rgb)
 
-    def text(self, text, x, y, size, color=INK, weight=2, font=SANS, width=None, tracking=0, *, ink_top=False):
-        advance = measure(text, size, font, tracking)
-        if width is not None:
-            assert advance <= width + 0.001, (text, advance, width)
-        cursor = x
-        scale = size / 21
+    def paint(self, instructions):
+        for opcode, operands, color in instructions:
+            rgb = bytes(color)
+            if opcode == 'pen':
+                self.pen(operands[0], operands[1], rgb)
+            elif opcode == 'box':
+                west, north, east, south = operands
+                for scan in range(north, south):
+                    self.span(scan, west, east, rgb)
+            else:
+                horizontal, vertical, radius = operands
+                for offset in range(-round(radius), round(radius) + 1):
+                    reach = geometry.floor(geometry.sqrt(max(0, radius ** 2 - offset ** 2)))
+                    self.span(vertical + offset, horizontal - reach, horizontal + reach + 1, rgb)
+
+    def encode(self):
+        reduced = bytearray()
+        row_bytes = RASTER_EDGE * 3
+        for output_y in range(RESOLUTION):
+            reduced.extend(b'\0')
+            origin = output_y * ZOOM * row_bytes
+            for output_x in range(RESOLUTION):
+                start = origin + output_x * 9
+                for component in range(3):
+                    address = start + component
+                    sample = 0
+                    for row_offset in (0, row_bytes, row_bytes * 2):
+                        cell = address + row_offset
+                        sample += self.buffer[cell] + self.buffer[cell + 3] + self.buffer[cell + 6]
+                    reduced.append((sample + 4) // 9)
+        blocks = [(b'IHDR', binary.pack('>2I5B', RESOLUTION, RESOLUTION, 8, 2, 0, 0, 0)),
+                  (b'IDAT', deflate.compress(reduced, level=9)), (b'IEND', bytes())]
+        payload = bytearray.fromhex('89504e470d0a1a0a')
+        for name, content in blocks:
+            payload.extend(binary.pack('>I', len(content)))
+            payload.extend(name + content)
+            payload.extend(binary.pack('>I', deflate.crc32(name + content) & 0xffffffff))
+        return bytes(payload)
+
+
+# One record per printable ASCII character; the separator is not a pen command.
+LETTER_SOURCE = r'''JZ|MWRFRT RRYQZR[SZRY|JZNFNM RVFVM
+H]SBLb RYBRb RLOZO RKUYU
+H\PBP_ RTBT_ RYIWGTFPFMGKIKKLMMNOOUQWRXSYUYXWZT[P[MZKX
+F^[FI[ RNFPHPJOLMMKMIKIIJGLFNFPGSHVHYG[F RWTUUTWTYV[X[ZZ[X[VYTWT
+E_\O\N[MZMYNXPVUTXRZP[L[JZIYHWHUISJRQNRMSKSIRGPFNGMIMKNNPQUXWZY[[[\Z\Y
+MWRHQGRFSGSIRKQL|KYVBTDRGPKOPOTPYR]T`Vb|KYNBPDRGTKUPUTTYR]P`Nb
+JZRLRX RMOWU RWOMU|E_RIR[ RIR[R|NVSWRXQWRVSWSYQ[|E_IR[R
+NVRVQWRXSWRV|G][BIb|H\QFNGLJKOKRLWNZQ[S[VZXWYRYOXJVGSFQF
+H\NJPISFS[|H\LKLJMHNGPFTFVGWHXJXLWNUQK[Y[
+H\MFXFRNUNWOXPYSYUXXVZS[P[MZLYKW|H\UFKTZT RUFU[
+H\WFMFLOMNPMSMVNXPYSYUXXVZS[P[MZLYKW
+H\XIWGTFRFOGMJLOLTMXOZR[S[VZXXYUYTXQVOSNRNOOMQLT|H\YFO[ RKFYF
+H\PFMGLILKMMONSOVPXRYTYWXYWZT[P[MZLYKWKTLRNPQOUNWMXKXIWGTFPF
+H\XMWPURRSQSNRLPKMKLLINGQFRFUGWIXMXRWWUZR[P[MZLX
+NVROQPRQSPRO RRVQWRXSWRV|NVROQPRQSPRO RSWRXQWRVSWSYQ[
+F^ZIJRZ[|E_IO[O RIU[U|F^JIZRJ[|I[LKLJMHNGPFTFVGWHXJXLWNVORQRT RRYQZR[SZRY
+E`WNVLTKQKOLNMMPMSNUPVSVUUVS RQKOMNPNSOUPV RWKVSVUXVZV\T]Q]O\L[JYHWGTFQFNGLHJJILHOHRIUJWLYNZQ[T[WZYYZX RXKWSWUXV
+I[RFJ[ RRFZ[ RMTWT|G\KFK[ RKFTFWGXHYJYLXNWOTP RKPTPWQXRYTYWXYWZT[K[
+H]ZKYIWGUFQFOGMILKKNKSLVMXOZQ[U[WZYXZV|G\KFK[ RKFRFUGWIXKYNYSXVWXUZR[K[
+H[LFL[ RLFYF RLPTP RL[Y[|HZLFL[ RLFYF RLPTP
+H]ZKYIWGUFQFOGMILKKNKSLVMXOZQ[U[WZYXZVZS RUSZS|G]KFK[ RYFY[ RKPYP
+NVRFR[|JZVFVVUYTZR[P[NZMYLVLT|G\KFK[ RYFKT RPOY[|HYLFL[ RL[X[
+F^JFJ[ RJFR[ RZFR[ RZFZ[|G]KFK[ RKFY[ RYFY[
+G]PFNGLIKKJNJSKVLXNZP[T[VZXXYVZSZNYKXIVGTFPF
+G\KFK[ RKFTFWGXHYJYMXOWPTQKQ
+G]PFNGLIKKJNJSKVLXNZP[T[VZXXYVZSZNYKXIVGTFPF RSWY]
+G\KFK[ RKFTFWGXHYJYLXNWOTPKP RRPY[|H\YIWGTFPFMGKIKKLMMNOOUQWRXSYUYXWZT[P[MZKX
+JZRFR[ RKFYF|G]KFKULXNZQ[S[VZXXYUYF|I[JFR[ RZFR[|F^HFM[ RRFM[ RRFW[ R\FW[
+H\KFY[ RYFK[|I[JFRPR[ RZFRP|H\YFK[ RKFYF RK[Y[|KYOBOb RPBPb ROBVB RObVb
+KYKFY^|KYTBTb RUBUb RNBUB RNbUb|JZRDJR RRDZR|I[Ib[b|NVSKQMQORPSORNQO
+I\XMX[ RXPVNTMQMONMPLSLUMXOZQ[T[VZXX|H[LFL[ RLPNNPMSMUNWPXSXUWXUZS[P[NZLX
+I[XPVNTMQMONMPLSLUMXOZQ[T[VZXX|I\XFX[ RXPVNTMQMONMPLSLUMXOZQ[T[VZXX
+I[LSXSXQWOVNTMQMONMPLSLUMXOZQ[T[VZXX|MYWFUFSGRJR[ ROMVM
+I\XMX]W`VaTbQbOa RXPVNTMQMONMPLSLUMXOZQ[T[VZXX|I\MFM[ RMQPNRMUMWNXQX[
+NVQFRGSFREQF RRMR[|MWRFSGTFSERF RSMS^RaPbNb|IZMFM[ RWMMW RQSX[|NVRFR[
+CaGMG[ RGQJNLMOMQNRQR[ RRQUNWMZM\N]Q][|I\MMM[ RMQPNRMUMWNXQX[
+I\QMONMPLSLUMXOZQ[T[VZXXYUYSXPVNTMQM|H[LMLb RLPNNPMSMUNWPXSXUWXUZS[P[NZLX
+I\XMXb RXPVNTMQMONMPLSLUMXOZQ[T[VZXX|KXOMO[ ROSPPRNTMWM
+J[XPWNTMQMNNMPNRPSUTWUXWXXWZT[Q[NZMX|MYRFRWSZU[W[ ROMVM
+I\MMMWNZP[S[UZXW RXMX[|JZLMR[ RXMR[|G]JMN[ RRMN[ RRMV[ RZMV[
+J[MMX[ RXMM[|JZLMR[ RXMR[P_NaLbKb|J[XMM[ RMMXM RM[X[
+KYTBRCQDPFPHQJRKSMSOQQ RRCQEQGRISJTLTNSPORSTTVTXSZR[Q]Q_Ra RQSSUSWRYQZP\P^Q`RaTb
+NVRBRb
+KYPBRCSDTFTHSJRKQMQOSQ RRCSESGRIQJPLPNQPURQTPVPXQZR[S]S_Ra RSSQUQWRYSZT\T^S`RaPb
+F^IUISJPLONOPPTSVTXTZS[Q RISJQLPNPPQTTVUXUZT[Q[O'''
+
+
+def unpack_letter(record):
+    bearings = [ord(mark) - ord('R') for mark in record[:2]]
+    contours = []
+    for section in record[2:].split(' R'):
+        coordinates = [ord(mark) - ord('R') for mark in section]
+        assert len(coordinates) % 2 == 0, record
+        if coordinates:
+            contours.append(tuple(zip(coordinates[0::2], coordinates[1::2])))
+    return (*bearings, tuple(contours))
+
+
+def squeeze(alphabet, ratio):
+    result = {}
+    for character, (west, east, contours) in alphabet.items():
+        transformed = []
+        for contour in contours:
+            transformed.append(tuple((abscissa * ratio, ordinate) for abscissa, ordinate in contour))
+        result[character] = west * ratio, east * ratio, tuple(transformed)
+    return result
+
+
+def assemble_typefaces():
+    records = LETTER_SOURCE.replace('|', '\n').splitlines()
+    assert len(records) == 95
+    plain = {chr(32 + index): unpack_letter(record) for index, record in enumerate(records)}
+    plain.update({'·': (-5, 5, (((-.7, 0), (.7, 0)),)),
+                  '—': (-12, 12, (((-10, 0), (10, 0)),))})
+    roman = plain.copy()
+    punctuation = [('*', 'JZRFRR RMIWO RWIMO'), (',', r'MWSZR[QZRYSZS\R^Q_'),
+                   ('.', 'MWRYQZR[SZRY'), (':', 'MWRMQNROSNRM RRYQZR[SZRY'),
+                   (';', r'MWRMQNROSNRM RSZR[QZRYSZS\R^Q_'),
+                   ('^', 'JZPLRITL RMORJWO RRJR['), ('_', 'JZJ]Z]'),
+                   ('`', 'MWSFRGQIQKRLSKRJ')]
+    for character, record in punctuation:
+        roman[character] = unpack_letter(record)
+    decorated = roman.copy()
+    for character in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789':
+        west, east, contours = roman[character]
+        ends, reinforcements = set(), []
+        for contour in contours:
+            if len(contour) <= 1:
+                continue
+            for tip, neighbor in [(contour[0], contour[1]), (contour[-1], contour[-2])]:
+                if tip[1] in {-12, -5, 9} and abs(neighbor[1] - tip[1]) >= 3:
+                    ends.add(tip)
+            for first, second in zip(contour[:-1], contour[1:]):
+                if abs(second[0] - first[0]) <= 1 and abs(second[1] - first[1]) >= 5:
+                    reinforcements.append(((first[0] + .65, first[1]), (second[0] + .65, second[1])))
+        additions = [((u - 2.5, v), (u + 2.5, v)) for u, v in sorted(ends)]
+        if character in '0235689':
+            for contour in contours:
+                if len(contour) > 2 and contour[0] != contour[-1]:
+                    for u, v in (contour[0], contour[-1]):
+                        additions.append(((u, v - 2), (u, v + 2)))
+        extra_paths = tuple(reinforcements + additions)
+        extremes = [u for contour in extra_paths for u, v in contour]
+        if extremes:
+            west, east = min(west, min(extremes) - 1), max(east, max(extremes) + 1)
+        decorated[character] = west, east, contours + extra_paths
+    return dict(body=plain, narrow=squeeze(plain, .72), tag=squeeze(plain, .86),
+                mast=squeeze(decorated, .82), hero=squeeze(decorated, .72))
+
+
+FACES = assemble_typefaces()
+
+
+class Typesetter:
+    """Measure copy and compile glyph strokes into the display list."""
+
+    def __init__(self, display):
+        self.display = display
+
+    def extent(self, words, point_size, face='body', spacing=0):
+        alphabet = FACES[face]
+        units = sum(alphabet[letter][1] - alphabet[letter][0] for letter in words)
+        return units * point_size / 21 + max(0, len(words) - 1) * spacing
+
+    def paragraphs(self, words, point_size, available, face):
+        rows = []
+        pending = []
+        for token in words.split():
+            candidate = ' '.join(pending + [token])
+            if pending and self.extent(candidate, point_size, face) > available:
+                rows.append(' '.join(pending))
+                pending = []
+            pending.append(token)
+        if pending:
+            rows.append(' '.join(pending))
+        return rows
+
+    def put(self, words, left, top, available, point_size=8, shade='grey',
+            thickness=2, face='tag', spacing=.38, align='left'):
+        advance = self.extent(words, point_size, face, spacing)
+        if align == 'center':
+            inset = (available - advance) / 2
+            assert inset >= 1, words
+            left, available = left + inset, available - inset
+        cursor = device(left) / ZOOM
+        assert advance <= left + available - cursor + .001, words
+        factor = point_size / 21
         paths = []
-        for ch in text:
-            left, right, strokes = font[ch]
-            for stroke in strokes:
-                pts = [(cursor + (px - left) * scale, (py + 12) * scale + (0 if ink_top else y)) for px, py in stroke]
-                if len(pts) >= 2:
-                    paths.append(tuple(((round(px * SCALE), round(py * SCALE)) for px, py in pts)))
-            cursor += (right - left) * scale + tracking
-        if paths:
-            if ink_top:
-                pad = math.floor(weight / 2)
-                min_y = min((min((py for _, py in path)) - pad for path in paths))
-                dy = round(y * SCALE) - min_y
-                paths = [tuple(((px, py + dy) for px, py in path)) for path in paths]
-            ink = [self.stroke_pixels(path, color, weight) for path in paths]
-            bounds = (min((b[0] for b in ink)) / SCALE, min((b[1] for b in ink)) / SCALE, max((b[2] for b in ink)) / SCALE, max((b[3] for b in ink)) / SCALE)
-            if width is not None:
-                assert x <= bounds[0] and bounds[2] <= x + width, (text, bounds, x, width)
-            self.text_boxes.append((text, bounds))
-        return advance
+        for letter in words:
+            west, east, contours = FACES[face][letter]
+            for contour in contours:
+                if len(contour) > 1:
+                    paths.append(tuple((device(cursor + (u - west) * factor),
+                                        device((v + 12) * factor)) for u, v in contour))
+            cursor += (east - west) * factor + spacing
+        if not paths:
+            return
+        radius = thickness // 2
+        ceiling = min(v for contour in paths for u, v in contour) - radius
+        correction = device(top) - ceiling
+        shifted = [tuple((u, v + correction) for u, v in contour) for contour in paths]
+        for contour in shifted:
+            self.display.trace(contour, shade, thickness)
+        west = min(u for contour in shifted for u, v in contour) - radius
+        east = max(u for contour in shifted for u, v in contour) + radius + 1
+        south = max(v for contour in shifted for u, v in contour) + radius + 1
+        bounds = west / ZOOM, device(top) / ZOOM, east / ZOOM, south / ZOOM
+        assert device(left) / ZOOM <= bounds[0] and bounds[2] <= left + available, (words, bounds)
+        self.display.copy_bounds.append((words, bounds))
 
-    def png(self):
-        raw = bytearray()
-        stride = SIDE * 3
-        for y in range(1024):
-            raw.append(0)
-            a = 3 * y * stride
-            b = a + stride
-            c = b + stride
-            for x in range(1024):
-                p = x * 9
-                for channel in range(3):
-                    total = self.pixels[a + p + channel] + self.pixels[a + p + 3 + channel] + self.pixels[a + p + 6 + channel] + self.pixels[b + p + channel] + self.pixels[b + p + 3 + channel] + self.pixels[b + p + 6 + channel] + self.pixels[c + p + channel] + self.pixels[c + p + 3 + channel] + self.pixels[c + p + 6 + channel]
-                    raw.append((total + 4) // 9)
+    def credit(self, words, left, available, floor):
+        prior = self.display.copy_bounds[-1][1][3]
+        top = geometry.ceil((prior + 8) * ZOOM) / ZOOM
+        self.display.box(left, top + 3, 8, 1, 'red')
+        self.put(words, left + 13, top, available - 13, 7.2, spacing=.62)
+        assert floor - self.display.copy_bounds[-1][1][3] >= 10, words
 
-        def chunk(kind, data):
-            return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 4294967295)
-        return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 1024, 1024, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(bytes(raw), 9)) + chunk(b'IEND', b'')
 
-def measure(text, size, font=SANS, tracking=0):
-    return sum((font[c][1] - font[c][0] for c in text)) * size / 21 + max(0, len(text) - 1) * tracking
+DESKS = {
+    'ASIA': ('AS', (142, 65, 38)),
+    'EUROPE': ('EU', COLORS['blue']),
+    'MIDDLE EAST': ('ME', (136, 82, 20)),
+    'AFRICA': ('AF', (130, 52, 99)),
+    'AMERICAS': ('AM', (164, 57, 48)),
+    'RUSSIA & UKRAINE': ('RU', (48, 89, 112)),
+    'TECHNOLOGY & BUSINESS': ('TB', (39, 104, 91)),
+}
 
-def wrap(text, size, width, font):
-    lines, current = ([], '')
-    for word in text.split():
-        trial = (current + ' ' + word).strip()
-        if current and measure(trial, size, font) > width:
-            lines.append(current)
-            current = word
+# Records are field-delimited editorial copy, independent of layout commands.
+LEADS = '''SHENZHEN SUMMIT|APEC 2026 · SHENZHEN · THREE-WAY PEACE DECLARATION|Trump, Xi and Putin/issue peace declaration|Unprecedented three-way meeting dominated APEC leaders' gathering.|FROM AP
+UKRAINE UNDER FIRE|KYIV · RUSSIA & UKRAINE · OVERNIGHT ATTACK|Russia launches/massive Ukraine attack|Kyiv bridges struck hours after Trump-Putin Xi peace declaration.|BY REUTERS
+MARKETS IN ROUT|GLOBAL MARKETS · TECHNOLOGY & BUSINESS|Global stock rout/wipes nearly $9 trillion|VIX hits 30, highest since late March, amid AI fears.|BY REUTERS'''
+
+CITY_COPY = '''EUROPE|LONDON|bridge|Britain and EU clinch trade deals|Summit reset still stuck on university tuition fee differences.|BY REUTERS
+MIDDLE EAST|RIYADH|missile|Houthis fire missiles at Riyadh|Coalition also intercepted five drones and a ballistic missile.|BY AP
+AFRICA|BADME|fist|Ethiopia and Eritrea mass troops|ACLED reports drone strikes near Badme; Eritrea denies buildup.|BY REUTERS
+ASIA|TAIPEI|chart|Taiwan stocks suffer worst week since 1990|AI selloff wipes more than 16 percent from benchmark index.|BY REUTERS
+AMERICAS|WASHINGTON|court|Senate rejects Iran war powers bid|Vote 51-48 defeats measure previously passed by House.|BY AP
+TECHNOLOGY & BUSINESS|NEW YORK|chart|Anthropic shares tumble 9%|AI valuation concerns weigh heavily on technology stocks.|BY REUTERS
+ASIA|TOKYO|chart|Japan inflation hits 2.6 percent|Prices remain in focus as Tokyo inflation reaches 2.6 percent.|BY REUTERS
+AFRICA|DAKAR|fist|Senegal party expels President Faye|Party expels President Faye in a fresh political rupture.|BY REUTERS'''
+
+BRIEF_COPY = '''ASIA|Trump, Xi and Putin issue peace deal
+EUROPE|Russia violates Polish airspace three times
+EUROPE|France seeks UN meeting after Kyiv strikes
+RUSSIA & UKRAINE|Russia accuses Estonia of new Iron Curtain
+EUROPE|Italy strike draws thousands into streets
+EUROPE|de Villepin launches 2027 bid in Paris
+MIDDLE EAST|Houthi attacks worry over Saudi nuclear pact
+MIDDLE EAST|Two oil tankers hit mines in Hormuz
+MIDDLE EAST|Israeli strikes kill six in central Gaza
+AFRICA|Nigeria states approve state police change
+AFRICA|Bayelsa funeral barge capsizes
+AFRICA|South Sudan groups reject election delay
+ASIA|Xi hails China-Australia turnaround
+ASIA|Nepal PM Shah plans India visit
+ASIA|Malaysia to resettle 10,000 Rohingya
+AMERICAS|Virginia judge blocks Trump arch
+AMERICAS|Florida carries out record 20th execution
+AMERICAS|LatAm stocks tumble to one-year low
+TECHNOLOGY & BUSINESS|Dollar index reaches 19-month high
+TECHNOLOGY & BUSINESS|Gold falls 2 percent; copper weekly drop'''
+
+
+def records(copy):
+    return [record.split('|') for record in copy.splitlines()]
+
+
+# Base64 transport is split into independent rows for review and maintenance.
+WORLD_BITS = ''.join((
+    'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    'AP//7//wAAAAAAAAAAAAAAAAAAAAAAB///////AA/wDwAAHgAAAAAAAAAAAHf//////4AB/gAAAAD+AAAAAAAAAAD/v/8///',
+    '/4AA/gAA+ADf4AGAAAAAAAH///4A///4AAAAAH4Af/8AP8AAAAAAH///+Af//wAAAAAeD////+H4AAwH/gf////4P//wAAD8',
+    'AeH///////wRw//////9/4P//AAAP/nP//////////+///////3/H/wuAAf//////////////////////+H/B/AB////////',
+    '//////Df/////7/8D8A8AP//////////////A//////gf8B4AAAP/////////////8A/8////wP+AAAAGP5///////////fQ',
+    'AHwB///8H/AAAAPD7/////////8B8AAeAB////v/wAAAfD//////////9B8AAAAB//////4AAAfv///////////B4AAAAAf/',
+    '////4AAAX////////////AwAAAAAf/////8AAAH////////////gAAAAAAH/////8AAAH////////////AAAAAAAD/////gA',
+    'AAB//7////////7gAAAAAAH////8AAAAf//7f///////3gAAAAAAH////wAAAAfy/////////+HAAAAAAAD///+AAAAAfi//',
+    '///////+GAAAAAAAD///+AAAAAf/7////////+OAAAAAAAB///+AAAAAP/Bz///////n+AAAAAAAA///4AAAAAf/zB//////',
+    '/jwAAAAAAAAf//wAAAAAf//////////hAAAAAAAAAP/9wAAAAB///////////wAAAAAAAAAP/A8AAAAD///////////gAAAA',
+    'AAAAAH/AcAAAAD///////////gAAAAACAAAD/B8AAAAH//////H///+gAAAAADgAAAfPeAAAAH//////B///wgAAAAABgAAA',
+    'f+P8AAAH////v+A/j/wwAAAAAAAAAAP+EsAAAH/////+A/B/hwAAAAAAAAAABfgAAAAH/////4A+B/hwAAAAAAAAAAAPgwAA',
+    'AH/////wAeAfg4AAAAAAAAAAADj/AAAH/////wAcAXh4AAAAAAAAAAAB//gAAD/////wAOAbDcAAAAAAAAAAAAf/4AAB////',
+    '/gAOAcC8AAAAAAAAAAAAH/+AAAfv///gACB8HIAAAAAAAAAAAAP/+AAAAD///AAAA8/EAAAAAAAAAAAAf//AAAAD//+AAAAe',
+    '/+AAAAAAAAAAAAf//wAAAD//8AAAAO/38AAAAAAAAAAAf//+AAAD//4AAAAPf//mAAAAAAAAAAf///gAAB//wAAAAHHw/vAA',
+    'AAAAAAAAf///gAAA//wAAAAD8AX9wAAAAAAAAAP///gAAA//wAAAAAf8PcYAAAAAAAAAP///AAAA//4AAAAAA57cMAAAAAAA',
+    'AAH///AAAA//5wAAAAAH7AAAAAAAAAAAH//+AAAB//7wAAAAAP7gBAgAAAAAAAB//+AAAB///wAAAAAf/wBDAAAAAAAAA//+',
+    'AAAB//jgAAAAB//4ADAAAAAAAAA//8AAAA//HgAAAAH//4DAAAAAAAAAA//8AAAAf/HAAAAAP//8BAAAAAAAAAA//gAAAAf/',
+    'HAAAAAP//+AAAAAAAAAAA//AAAAAf+AAAAAAP//+AAAAAAAAAAA//AAAAAP+AAAAAAH//+AAAAAAAAAAA/+AAAAAP8AAAAAA',
+    'H//+AAAAAAAAAAA/8AAAAAP4AAAAAAH8/+AAAAAAAAAAB/8AAAAAGAAAAAAAHQf8AMAAAAAAAAB/wAAAAAAAAAAAAAAAH8AP',
+    'AAAAAAAAB/wAAAAAAAAAAAAAAADwAPAAAAAAAAD+AAAAAAAAAAAAAAAAA4AeAAAAAAAAD+AAAAAAAAAAAAAAAAA4A4AAAAAA',
+    'AAD8AAAAAAAAAAAAAAAAAABwAAAAAAAAD8AAAAAAAAAAAAAAAAAABgAAAAAAAAD8AAAAAAAAAADAAAAAAAAAAAAAAAAADxwA',
+    'AAAAAAAAAAAAAAAAAAAAAAAAAAD5gAAAAAAAAAAAAAAAAAAAAAAAAAAAB8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAAAA',
+    'AAAAAAAAAAAAAAAHgAAAAAAAAOAAAGIAQAAAAAAAAAAAAOAAAAAAAAD/+D/////wAAAAAAAAAAA+AAAAAEsH//+///////wA',
+    'AAAAAAPAD/AAAA///////////////wAAAAPkP///AAAH///////////////wAAD///////AAAf///////////////AAD////',
+    '///wAgf///////////////+AAP//////+BD4/////////////////AAB////////v/////////////////4ABAf/////////',
+    '/////////////////g//////////////////////////////////////////////////////////////////////////////',
+    '////////////',
+))
+
+
+class Artboard:
+    """Translate a compact illustration program into page-space instructions."""
+
+    def __init__(self, newspaper, origin, dimensions):
+        self.display = newspaper.scene
+        self.letters = newspaper.type
+        self.origin = origin
+        self.width, self.height = dimensions
+        self.elements = 0
+
+    def check(self, west, north, east, south):
+        assert 0 <= west <= east <= self.width
+        assert 0 <= north <= south <= self.height
+        self.elements += 1
+        assert self.elements <= 60
+
+    def fill_polygon(self, vertices, shade):
+        horizontal, vertical = zip(*vertices)
+        self.check(min(horizontal), min(vertical), max(horizontal), max(vertical))
+        perimeter = list(zip(vertices, vertices[1:] + vertices[:1]))
+        for scan in range(device(min(vertical)), device(max(vertical))):
+            ordinate = (scan + .5) / ZOOM
+            crossings = []
+            for (u, v), (end_u, end_v) in perimeter:
+                if min(v, end_v) <= ordinate < max(v, end_v):
+                    crossings.append(u + (ordinate - v) * (end_u - u) / (end_v - v))
+            crossings.sort()
+            assert not len(crossings) % 2
+            for start, stop in zip(crossings[::2], crossings[1::2]):
+                self.display.box(self.origin[0] + start, self.origin[1] + scan / ZOOM,
+                                 stop - start, 1 / ZOOM, shade)
+
+    def draw(self, *program):
+        ox, oy = self.origin
+        for command in program:
+            opcode, *values = command
+            if opcode == 'r':
+                u, v, width, height, shade = values
+                self.check(u, v, u + width, v + height)
+                self.display.box(ox + u, oy + v, width, height, shade)
+            elif opcode == 'd':
+                u, v, radius, shade = values
+                self.check(u - radius, v - radius, u + radius + .5, v + radius + .5)
+                self.display.circle(ox + u, oy + v, radius, shade)
+            elif opcode == 'p':
+                vertices, shade = values
+                self.fill_polygon(vertices, shade)
+            elif opcode == 'l':
+                vertices, shade, *custom_weight = values
+                thickness = custom_weight[0] if custom_weight else 3
+                horizontal, vertical = zip(*vertices)
+                padding = thickness / (2 * ZOOM) + .5
+                self.check(min(horizontal) - padding, min(vertical) - padding,
+                           max(horizontal) + padding, max(vertical) + padding)
+                translated = [(ox + u, oy + v) for u, v in vertices]
+                for begin, end in zip(translated[:-1], translated[1:]):
+                    self.display.segment(begin, end, shade, thickness)
+            elif opcode == 't':
+                words, u, v, width, size, shade, *settings = values
+                options = settings[0] if settings else {}
+                self.letters.put(words, ox + u, oy + v, width, size, shade,
+                                 spacing=0, align='center', **options)
+            else:
+                raise ValueError(opcode)
+
+
+def portrait_program(board):
+    ivory, bullion, vermilion = (252, 242, 221), (242, 185, 79), (219, 70, 53)
+    board.draw(('r', 0, 0, board.width, board.height, (39, 36, 44)),
+               ('r', 12, 12, board.width - 24, 112, (66, 54, 60)))
+    board.draw(*(('r', 16, scan, board.width - 32, 1, (103, 77, 73))
+                 for scan in [16, 20, 102]))
+    people = [
+        dict(center=56, name='TRUMP', coat=COLORS['blue'], aura=(81, 109, 157),
+             skin=(242, 177, 136), hair=bullion),
+        dict(center=154, name='XI', coat=vermilion, aura=(164, 65, 51),
+             skin=(232, 167, 119), hair=(40, 32, 32)),
+        dict(center=252, name='PUTIN', coat=COLORS['blue'], aura=(92, 118, 159),
+             skin=(235, 188, 158), hair=(180, 156, 133)),
+    ]
+    for person in people:
+        middle = person['center']
+
+        def silhouette(points, shade):
+            return 'p', tuple((middle + u, v) for u, v in points), shade
+
+        skin, coat = person['skin'], person['coat']
+        is_xi = person['name'] == 'XI'
+        board.draw(
+            ('d', middle, 57, 41, person['aura']),
+            ('r', middle - 7, 67, 14, 17, skin),
+            silhouette([(-40, 109), (-35, 88), (-10, 77), (10, 77), (35, 88), (40, 109)], coat),
+            ('r', middle - 14, 34, 28, 26, skin),
+            ('d', middle, 58, 13.5, skin),
+            silhouette([(-14, 44), (-16, 35), (-7, 27), (11, 26), (16, 32),
+                        (13, 42), (9, 35), (-8, 37)], person['hair']),
+            ('r', middle - 8, 50, 3, 2, 'ink'),
+            ('r', middle + 5, 50, 3, 2, 'ink'),
+            ('l', [(middle, 51), (middle - 2, 57), (middle + 1, 57)], (158, 96, 73), 2),
+            ('r', middle - 4, 62, 8, 1, (138, 79, 59)),
+            silhouette([(-11, 77), (11, 77), (0, 98)], bullion if is_xi else ivory),
+            silhouette([(0, 82), (3, 89), (0, 104), (-3, 89)], bullion if is_xi else vermilion),
+        )
+        seam_color = tuple(component * 3 // 4 for component in coat)
+        for direction in [-1, 1]:
+            board.draw(('l', [(middle + direction * 15, 82), (middle + direction * 19, 89),
+                               (middle + direction * 8, 102)], seam_color))
+        if person['name'] == 'TRUMP':
+            board.draw(*(('r', middle - 28, scan, 11, 2, shade)
+                         for scan, shade in zip([92, 95, 98], [vermilion, ivory, vermilion])))
+        elif is_xi:
+            board.draw(silhouette([(-23, 87), (-21, 91), (-17, 92), (-21, 95),
+                                   (-23, 99), (-25, 95), (-29, 92), (-25, 91)], bullion))
         else:
-            current = trial
-    if current:
-        lines.append(current)
-    assert all((measure(line, size, font) <= width for line in lines)), (text, size, width)
-    return lines
-
-def label(page, text, x, y, width, size=8, color=GREY, *, weight=2, font=TAG, tracking=0.38):
-    left = round(x * SCALE) / SCALE
-    return page.text(text, left, y, size, color, weight, font, x + width - left, tracking, ink_top=True)
-
-def centered(page, text, x, y, width, size, color=INK, *, weight=2, font=SANS, tracking=0):
-    margin = (width - measure(text, size, font, tracking)) / 2
-    assert margin >= 1, (text, width)
-    label(page, text, x + margin, y, width - margin, size, color, weight=weight, font=font, tracking=tracking)
-
-def byline(page, text, x, width, card_bottom):
-    previous_bottom = page.text_boxes[-1][1][3]
-    y = math.ceil((previous_bottom + 8) * SCALE) / SCALE
-    first = len(page.text_boxes)
-    page.rect(x, y + 3, 8, 1, RED)
-    label(page, text, x + 13, y, width - 13, 7.2, GREY, weight=2, tracking=0.62)
-    _, (_, top, _, bottom) = page.text_boxes[first]
-    assert top - previous_bottom >= 8, (text, 'byline top gap')
-    assert card_bottom - bottom >= 10, (text, 'byline bottom gap', card_bottom, bottom)
-    return bottom
-
-def check_bounds(page, first, x, y, w, h):
-    for text, (left, top, right, bottom) in page.text_boxes[first:]:
-        assert x <= left < right <= x + w and y <= top < bottom <= y + h, (text, 'section bounds', (left, top, right, bottom), (x, y, x + w, y + h))
-
-def column_rules(page, top, bottom):
-    assert 3 * COLUMN + 2 * GUTTER == WIDTH
-    for index in (1, 2):
-        center = EDGE + index * (COLUMN + GUTTER) - GUTTER / 2
-        page.rect(center - 0.5, top, 1, bottom - top, RULE)
-
-def desk_chip(page, desk, x, y):
-    width = math.ceil(measure(desk, 7.5, TAG, 0.48)) + 14
-    page.rect(x, y, width, 15, DESK_COLORS[desk])
-    label(page, desk, x + 7, y + 4, width - 13, 7.5, PAPER, tracking=0.48)
-
-def masthead(page, count):
-    label(page, f'THE WORLD IN ONE DAY · {count} STORIES · ACROSS THE GLOBE', EDGE, 23, 783, 10, RED, tracking=0.7)
-    label(page, 'WORLD EDITION', 872, 23, 124, 10, GREY, tracking=0.7)
-    centered(page, 'FRIDAY 20 NOVEMBER 2026', EDGE, 51, WIDTH, 44, weight=9, font=MASTHEAD, tracking=1.5)
-    page.rect(EDGE, 128, WIDTH, 4, RED)
-    page.rect(EDGE, 136, WIDTH, 1, RED)
-
-def stats_bar(page):
-    stats = (('3', 'PEACE DECLARATION'), ('8', 'KILLED IN UKRAINE'), ('$9tn', 'MARKET ROUT'), ('$93.5bn', 'ANTHROPIC IPO'), ('51-48', 'IRAN WAR POWERS'), ('2.6%', 'TOKYO INFLATION'), ('10,000', 'ROHINGYA RESETTLED'))
-    cell = WIDTH / len(stats)
-    for index, (number, title) in enumerate(stats):
-        x = EDGE + index * cell
-        first = len(page.text_boxes)
-        if index:
-            page.rect(x, 145, 0.5, 49, RULE)
-        centered(page, number, x + 4, 147, cell - 8, 27, (RED, BLUE)[index % 2], weight=5, font=HEADLINE)
-        centered(page, title, x + 4, 187, cell - 8, 8, GREY, font=TAG, tracking=0.4)
-        check_bounds(page, first, x + 4, 145, cell - 8, 53)
-    page.rect(EDGE, 202, WIDTH, 2, RED)
-
-class IllustrationFrame:
-    """Translate local artwork coordinates and enforce each frame's limits."""
-
-    def __init__(self, page, x, y, width, height):
-        self.page, self.x, self.y = (page, x, y)
-        self.width, self.height = (width, height)
-        self.shapes = 0
-
-    def bounds(self, left, top, right, bottom):
-        assert 0 <= left <= right <= self.width and 0 <= top <= bottom <= self.height
-        self.shapes += 1
-        assert self.shapes <= 60
-
-    def rect(self, x, y, w, h, color):
-        self.bounds(x, y, x + w, y + h)
-        self.page.rect(self.x + x, self.y + y, w, h, color)
-
-    def dot(self, x, y, r, color):
-        self.bounds(x - r, y - r, x + r + 0.5, y + r + 0.5)
-        self.page.dot(self.x + x, self.y + y, r, color)
-
-    def path(self, points, color, weight=3):
-        xs, ys = zip(*points)
-        pad = weight / (2 * SCALE) + 0.5
-        self.bounds(min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad)
-        for (x, y), (xx, yy) in zip(points, points[1:]):
-            self.page.line(self.x + x, self.y + y, self.x + xx, self.y + yy, color, weight)
-
-    def polygon(self, points, color):
-        xs, ys = zip(*points)
-        self.bounds(min(xs), min(ys), max(xs), max(ys))
-        edges = list(zip(points, points[1:] + points[:1]))
-        for row in range(round(min(ys) * SCALE), round(max(ys) * SCALE)):
-            y = (row + 0.5) / SCALE
-            hits = sorted((x + (y - y0) * (xx - x) / (y1 - y0) for (x, y0), (xx, y1) in edges if min(y0, y1) <= y < max(y0, y1)))
-            assert len(hits) % 2 == 0
-            for left, right in zip(hits[::2], hits[1::2]):
-                self.page.rect(self.x + left, self.y + row / SCALE, right - left, 1 / SCALE, color)
-
-    def type(self, text, x, y, width, size, color, font=TAG, weight=2):
-        first = len(self.page.text_boxes)
-        centered(self.page, text, self.x + x, self.y + y, width, size, color, font=font, weight=weight)
-        check_bounds(self.page, first, self.x + x, self.y + y, width, self.height - y)
-
-def draw_summit_portraits(art):
-    """Layer the summit backdrop, portraits, insignia, and nameplates."""
-    backdrop = (39, 36, 44)
-    cream, gold, scarlet = ((252, 242, 221), (242, 185, 79), (219, 70, 53))
-    art.rect(0, 0, art.width, art.height, backdrop)
-    art.rect(12, 12, art.width - 24, 112, (66, 54, 60))
-    for y in (16, 20, 102):
-        art.rect(16, y, art.width - 32, 1, (103, 77, 73))
-    for center, name, jacket, halo, skin, hair in ((56, 'TRUMP', BLUE, (81, 109, 157), (242, 177, 136), gold), (154, 'XI', scarlet, (164, 65, 51), (232, 167, 119), (40, 32, 32)), (252, 'PUTIN', BLUE, (92, 118, 159), (235, 188, 158), (180, 156, 133))):
-
-        def poly(points, color):
-            art.polygon(tuple(((center + x, y) for x, y in points)), color)
-        art.dot(center, 57, 41, halo)
-        art.rect(center - 7, 67, 14, 17, skin)
-        poly(((-40, 109), (-35, 88), (-10, 77), (10, 77), (35, 88), (40, 109)), jacket)
-        art.rect(center - 14, 34, 28, 26, skin)
-        art.dot(center, 58, 13.5, skin)
-        poly(((-14, 44), (-16, 35), (-7, 27), (11, 26), (16, 32), (13, 42), (9, 35), (-8, 37)), hair)
-        art.rect(center - 8, 50, 3, 2, INK)
-        art.rect(center + 5, 50, 3, 2, INK)
-        art.path(((center, 51), (center - 2, 57), (center + 1, 57)), (158, 96, 73), 2)
-        art.rect(center - 4, 62, 8, 1, (138, 79, 59))
-        poly(((-11, 77), (11, 77), (0, 98)), gold if name == 'XI' else cream)
-        poly(((0, 82), (3, 89), (0, 104), (-3, 89)), gold if name == 'XI' else scarlet)
-        seam = tuple((channel * 3 // 4 for channel in jacket))
-        art.path(((center - 15, 82), (center - 19, 89), (center - 8, 102)), seam)
-        art.path(((center + 15, 82), (center + 19, 89), (center + 8, 102)), seam)
-        if name == 'TRUMP':
-            for y, color in ((92, scarlet), (95, cream), (98, scarlet)):
-                art.rect(center - 28, y, 11, 2, color)
-        elif name == 'XI':
-            poly(((-23, 87), (-21, 91), (-17, 92), (-21, 95), (-23, 99), (-25, 95), (-29, 92), (-25, 91)), gold)
-        else:
-            for y, color in ((91, cream), (94, (82, 136, 207)), (97, scarlet)):
-                art.rect(center - 28, y, 11, 3, color)
-        art.rect(center - 37, 108, 74, 18, cream)
-        art.type(name, center - 37, 112, 74, 8.5, INK)
-
-def court_art(art):
-    backdrop, field = ((31, 46, 58), (39, 63, 79))
-    stone, light, gold = ((190, 175, 145), (247, 232, 202), (245, 180, 72))
-    art.rect(0, 0, art.width, art.height, backdrop)
-    art.rect(12, 12, art.width - 24, 112, field)
-    art.polygon(((29, 57), (113, 20), (197, 57)), light)
-    art.polygon(((58, 51), (113, 29), (168, 51)), stone)
-    art.dot(113, 43, 4, backdrop)
-    art.rect(203, 23, 1, 96, (67, 89, 103))
-    art.rect(37, 57, 152, 8, stone)
-    for x in (48, 75, 102, 129, 156):
-        art.rect(x, 67, 18, 5, light)
-        art.rect(x + 3, 72, 12, 33, light)
-        art.rect(x + 12, 72, 3, 33, stone)
-        art.rect(x + 7, 74, 0.5, 29, stone)
-        art.rect(x, 105, 18, 4, light)
-    art.rect(38, 109, 151, 5, light)
-    art.rect(31, 114, 165, 5, stone)
-    art.rect(23, 119, 181, 5, light)
-    art.path(((252, 31), (252, 85)), gold, 5)
-    art.path(((230, 42), (274, 42)), gold, 5)
-    art.dot(252, 33, 4, light)
-    for x in (230, 274):
-        art.path(((x - 11, 67), (x, 44), (x + 11, 67)), light)
-        art.polygon(((x - 13, 67), (x + 13, 67), (x + 7, 74), (x - 7, 74)), gold)
-    art.rect(236, 84, 32, 4, gold)
-    art.rect(221, 99, 62, 25, light)
-    art.type('9-6', 221, 105, 62, 13, INK, weight=3)
-
-def climate_art(art):
-    field, water, leaf = ((38, 69, 65), (67, 125, 170), (159, 198, 138))
-    white, heat = ((250, 231, 191), (226, 76, 53))
-    art.rect(0, 0, art.width, art.height, (29, 47, 45))
-    art.rect(12, 12, art.width - 24, 112, field)
-    for y in (33, 54, 75):
-        art.path(((27, y), (43, y - 4), (59, y + 1), (76, y - 3)), (70, 106, 96), 2)
-    art.dot(129, 60, 42, (73, 100, 85))
-    art.dot(129, 60, 38, water)
-    art.path(((94, 48), (164, 48)), (138, 174, 190))
-    art.path(((92, 68), (166, 68)), (138, 174, 190))
-    art.path(((128, 23), (115, 35), (110, 59), (116, 85), (128, 97)), (138, 174, 190))
-    art.path(((130, 23), (143, 35), (148, 59), (142, 85), (130, 97)), (138, 174, 190))
-    art.polygon(((102, 37), (116, 28), (129, 35), (127, 43), (112, 46), (115, 57), (107, 58), (98, 49)), leaf)
-    art.polygon(((114, 56), (129, 60), (135, 70), (126, 82), (120, 91), (115, 78)), leaf)
-    art.polygon(((146, 36), (153, 32), (163, 44), (166, 58), (156, 59), (152, 70), (145, 63), (147, 53), (135, 48)), leaf)
-    art.dot(208, 79, 14, white)
-    art.dot(208, 31, 8, white)
-    art.rect(200, 31, 16, 48, white)
-    art.rect(205, 48, 6, 32, heat)
-    art.dot(208, 79, 9, heat)
-    for y in (36, 46, 56, 66):
-        art.rect(222, y, 9, 2, white)
-    art.path(((246, 70), (258, 59), (270, 59), (281, 44)), (199, 149, 83))
-    art.rect(25, 103, art.width - 50, 22, white)
-    art.rect(25, 103, 3, 22, AMBER)
-    first = len(art.page.text_boxes)
-    art.type('"leaves out the goal for fossil-fuel aid"', 33, 108, art.width - 66, 8.5, INK, font=scale_font_width(0.9, ROMAN), weight=3)
-    check_bounds(art.page, first, art.x + 33, art.y + 107, art.width - 66, 15)
-
-def draw_ukraine_casualties(art):
-    """Pair the casualty figure with eight small human silhouettes."""
-    art.rect(0, 0, art.width, art.height, (43, 39, 39))
-    art.rect(0, 0, 5, art.height, RED)
-    art.type('OVERNIGHT ATTACK · UKRAINE', 12, 12, art.width - 24, 8, PAPER)
-    art.type('8', 14, 33, 86, 62, PAPER, font=HEADLINE, weight=7)
-    for index in range(8):
-        x, y = (132 + index % 4 * 39, 43 + index // 4 * 37)
-        art.dot(x, y, 5, (211, 182, 158))
-        art.rect(x - 7, y + 8, 14, 15, (173, 114, 105))
-    art.rect(15, 111, art.width - 30, 1, (140, 106, 99))
-    art.type('KILLED IN UKRAINE', 15, 120, art.width - 30, 9, PAPER)
-
-def draw_market_decline(art):
-    """Show the lost market value beside a descending equities arrow."""
-    art.rect(0, 0, art.width, art.height, (41, 49, 53))
-    art.rect(0, 0, 5, art.height, RED)
-    art.type('GLOBAL EQUITIES · VALUE WIPED OUT', 12, 12, art.width - 24, 8, PAPER)
-    art.type('$9tn', 12, 34, 144, 43, PAPER, font=HEADLINE, weight=6)
-    for y in (42, 65, 88):
-        art.path(((169, y), (289, y)), (78, 86, 88), 2)
-    art.path(((177, 36), (177, 51), (278, 92)), (225, 138, 118), 6)
-    art.polygon(((263, 91), (283, 97), (278, 77)), (225, 138, 118))
-    art.rect(15, 111, art.width - 30, 1, (105, 116, 119))
-    art.type('VIX 30 · AI FEARS HIT STOCKS', 15, 120, art.width - 30, 9, PAPER)
-
-def section_header(page, title, right, y):
-    page.rect(EDGE, y, 4, 12, RED)
-    label(page, title, EDGE + 11, y, 389, 10.5, RED, weight=3, tracking=0.92)
-    width = measure(right, 8.5, TAG, 0.75)
-    label(page, right, EDGE + WIDTH - width - 2, y + 1, width + 2, 8.5, tracking=0.75)
-
-def draw_lead_stories(page):
-    """Set the three illustrated leads and check their copy spacing."""
-    section_header(page, 'THE FRONT PAGE', 'DIPLOMACY · CONFLICT · MARKETS', 214)
-    art_top, bottom = (229, 510)
-    column_rules(page, art_top, bottom - 6)
-    for index, ((title, caption, lines, detail, source), draw) in enumerate(zip(LEAD_STORIES, (draw_summit_portraits, draw_ukraine_casualties, draw_market_decline))):
-        x = EDGE + index * (COLUMN + GUTTER)
-        first = len(page.text_boxes)
-        draw(IllustrationFrame(page, x, art_top, COLUMN, 138))
-        copy_start = len(page.text_boxes)
-        label(page, title, x, 373, COLUMN, 10, RED, weight=3, tracking=0.7)
-        label(page, caption, x, 387, COLUMN, 7.3, tracking=0.25)
-        for line_index, line in enumerate(lines):
-            label(page, line, x, 399 + line_index * 28, COLUMN, 18, weight=4, font=HERO_HEADLINE, tracking=0.15)
-        detail_size = 8
-        detail_lines = wrap(detail, detail_size, COLUMN - 3, SANS)
-        assert len(detail_lines) == 2, (source, detail_lines)
-        for line_index, line in enumerate(detail_lines):
-            label(page, line, x, 457 + line_index * 14, COLUMN, detail_size, font=SANS, tracking=0)
-        byline(page, source, x, COLUMN, bottom)
-        copy = page.text_boxes[copy_start:]
-        for (a, box), (b, following) in zip(copy, copy[1:]):
-            assert round((following[1] - box[3]) * SCALE) >= 2, (a, b, box, following)
-        check_bounds(page, first, x, art_top, COLUMN, bottom - art_top)
-        page.rendered.append(lines[0])
-
-def draw_story_icon(art, icon, color):
-    """Draw a desk-colored symbol on the card's square paper inset."""
-    art.rect(0, 0, 49, 49, (232, 223, 205))
-    if icon == 'bridge':
-        art.rect(6, 28, 37, 4, color)
-        for x in (13, 33):
-            art.rect(x, 14, 3, 23, color)
-        art.path(((7, 25), (14, 15), (24, 25), (34, 15), (42, 25)), color, 4)
-        art.path(((8, 40), (41, 40)), color, 2)
-    elif icon == 'missile':
-        art.polygon(((12, 30), (30, 12), (40, 9), (37, 19), (19, 37), (13, 36)), color)
-        art.polygon(((14, 26), (10, 24), (17, 17), (23, 17), (31, 25), (31, 31), (24, 38), (22, 33)), color)
-        art.path(((9, 39), (14, 34)), AMBER, 4)
-    elif icon == 'chart':
-        art.path(((9, 10), (9, 39), (41, 39)), color)
-        art.path(((13, 15), (22, 22), (27, 19), (39, 32)), color, 5)
-        art.polygon(((32, 32), (40, 25), (40, 34)), color)
-    elif icon == 'court':
-        art.polygon(((7, 18), (24, 8), (42, 18)), color)
-        art.rect(8, 20, 33, 3, color)
-        for x in (12, 22, 32):
-            art.rect(x, 25, 4, 13, color)
-        art.rect(8, 40, 33, 3, color)
-    elif icon == 'game':
-        art.polygon(((9, 18), (39, 18), (43, 31), (39, 36), (34, 35), (29, 30), (20, 30), (15, 35), (9, 36), (6, 31)), color)
-        art.rect(12, 23, 10, 2, PAPER)
-        art.rect(16, 19, 2, 10, PAPER)
-        art.dot(33, 23, 1.6, PAPER)
-        art.dot(37, 27, 1.6, PAPER)
-    elif icon == 'fist':
-        art.polygon(((16, 37), (16, 29), (10, 23), (10, 18), (14, 16), (18, 21), (18, 13), (35, 13), (38, 18), (38, 26), (32, 33), (32, 37)), color)
-        for x, y in ((18, 10), (23, 8), (28, 9), (33, 11)):
-            art.rect(x, y, 4, 11, color)
-        art.path(((14, 20), (23, 24), (29, 22)), PAPER, 3)
-        art.rect(16, 39, 16, 3, color)
-    else:
-        assert icon == 'medal'
-        art.polygon(((12, 8), (20, 8), (28, 27), (19, 29)), color)
-        art.polygon(((28, 8), (36, 8), (29, 29), (21, 27)), color)
-        art.dot(24, 32, 9, AMBER)
-        art.dot(24, 32, 5, color)
-        art.rect(23, 29, 2, 6, PAPER)
-
-def draw_world_cards(page):
-    """Place eight city reports in two rows of four bounded cards."""
-    page.rect(EDGE, 510, WIDTH, 3, RED)
-    section_header(page, 'AROUND THE WORLD', 'EIGHT STORIES · CITY DISPATCHES', 523)
-    card_width, card_height, gap = (CARD_WIDTH, CARD_HEIGHT, CARD_GAP)
-    assert len(WORLD_CARDS) == 8
-    for index, (desk, city, icon, headline, detail, source) in enumerate(WORLD_CARDS):
-        row, col = divmod(index, 4)
-        x, y = (round((EDGE + col * (card_width + gap)) * SCALE) / SCALE, 544 + row * 119)
-        first = len(page.text_boxes)
-        page.rect(x, y, card_width, 2, RED)
-        page.rect(x, y + 9, 3, 10, DESK_COLORS[desk])
-        label(page, desk, x + 8, y + 10, card_width - 8, 6.7, DESK_COLORS[desk], weight=3, tracking=0.25)
-        label(page, city, x, y + 21, card_width - 53, 7.2, GREY, tracking=0.8)
-        draw_story_icon(IllustrationFrame(page, x + 177, y + 18, 49, 49), icon, DESK_COLORS[desk])
-        inner, headline_size, leading = (167, 11.5, 18)
-        lines = wrap(headline, headline_size, inner - 3, HEADLINE)
-        assert 1 <= len(lines) <= 3
-        for line_index, line in enumerate(lines):
-            label(page, line, x, y + 31 + line_index * leading, inner, headline_size, INK, weight=3, font=HEADLINE, tracking=0)
-        detail_y = y + 31 + len(lines) * leading + 2
-        for line_index, line in enumerate(wrap(detail, 6.3, card_width - 2, TAG)):
-            label(page, line, x, detail_y + line_index * 11, card_width, 6.3, font=TAG, tracking=0)
-        byline(page, source, x, card_width, y + card_height)
-        check_bounds(page, first, x, y, card_width, card_height)
-        page.rendered.append(headline)
-
-def draw_dispatch_strip(page):
-    """Lay out the compact dispatch strip with shared column dividers."""
-    page.rect(EDGE, 727, WIDTH, 1, INK)
-    cell = WIDTH / len(DISPATCHES)
-    for index, (desk, headline, source) in enumerate(DISPATCHES):
-        left = EDGE + index * cell
-        x = round((left + (10 if index else 0)) * SCALE) / SCALE
-        inner = left + cell - x - 7
-        first = len(page.text_boxes)
-        if index:
-            page.rect(left, 735, 0.5, 61, RULE)
-        label(page, desk, x, 736, inner, 7.5, DESK_COLORS[desk], weight=3, tracking=0.55)
-        for line_index, line in enumerate(headline.splitlines()):
-            label(page, line, x, 748 + line_index * 18, inner, 11.5, INK, weight=3, font=HEADLINE)
-        label(page, source, x, 784, inner, 7.3, tracking=0.35)
-        check_bounds(page, first, x, 735, inner, 61)
-        page.rendered.append(headline)
-
-def draw_region_map(page, x, y):
-    """Sample land dots and distribute sixteen numbered pins by region."""
-    step = 1.45
-    mw, mh = (MASK_COLS * step, MASK_ROWS * step)
-    packed = decode_land_cells()
-    for row in range(0, MASK_ROWS, 2):
-        for col in range(0, MASK_COLS, 2):
-            bit = row * MASK_COLS + col
-            if packed[bit // 8] & 128 >> bit % 8:
-                page.dot(x + (col + 0.5) * step, y + (row + 0.5) * step, 0.55, LAND)
-    groups = {}
-    for number, (region, _, _) in enumerate(BULLETINS, 1):
-        groups.setdefault(region, []).append(number)
-    boxes = {'ASIA': (195, 35, 220, 63), 'EUROPE': (125, 14, 150, 28), 'RUSSIA & UKRAINE': (177, 9, 202, 23), 'MIDDLE EAST': (151, 44, 176, 58), 'AFRICA': (124, 76, 149, 90), 'AMERICAS': (53, 48, 78, 76), 'TECHNOLOGY & BUSINESS': (65, 24, 90, 38)}
-    selected = [(region, numbers[rank], rank) for rank in range(max(map(len, groups.values()))) for region, numbers in groups.items() if rank < len(numbers)][:16]
-    pins, represented = ([], set())
-    for region, number, rank in selected:
-        left, top, right, bottom = boxes[region]
-        col, row = (rank % 2, rank // 2)
-        jitter_x = (number * 7 % 3 - 1) / 3
-        jitter_y = (number * 11 % 3 - 1) / 3
-        px = x + left + col * (right - left) + jitter_x
-        py = y + top + row * (bottom - top) + col * 2 + jitter_y
-        assert x + 3 <= px <= x + mw - 19 and y + 5 <= py <= y + mh - 8
-        assert all((math.hypot(px - xx, py - yy) >= 12 for xx, yy in pins))
-        pins.append((px, py))
-        represented.add(region)
-        page.dot(px, py, 2.5, DESK_COLORS[region])
-        text, tx, ty = (f'{number:02d}', px + 4, py - 4)
-        first = len(page.text_boxes)
-        label(page, text, tx + 1, ty + 1, 15, 6.7, PAPER, weight=5, font=TAG, tracking=0)
-        del page.text_boxes[first:]
-        label(page, text, tx, ty, 15, 6.7, INK, weight=3, font=TAG, tracking=0)
-    assert len(pins) == 16 and represented == set(groups)
-    page.map_pins = len(pins)
-
-def draw_bulletin_panel(page):
-    """Combine the numbered map with two columns of regional briefs."""
-    page.rect(EDGE, 787, WIDTH, 3, RED)
-    section_header(page, 'WHERE IT HAPPENED', '20 BRIEFS · MAP PINS MATCH REGION CODES', 800)
-    draw_region_map(page, EDGE, 827)
-    label(page, 'REGION CENTROIDS · NATURAL EARTH 1:110M', EDGE, 959, 260, 6.0, tracking=0.15)
-    for col, x in enumerate((307, 654)):
-        page.rect(x - 9, 827, 0.5, 137, RULE)
-        for row, (region, headline, _) in enumerate(BULLETINS[col * 10:(col + 1) * 10]):
-            number = col * 10 + row + 1
-            row_height = 14
-            y = 830 + row * row_height
-            color = DESK_COLORS[region]
-            page.rect(x, y, 2, 8, color)
-            label(page, f'{number:02d}', x + 5, y, 16, 7.0, GREY, tracking=0)
-            label(page, REGION_CODES[region], x + 24, y, 17, 7.0, color, weight=3, tracking=0)
-            label(page, headline, x + 45, y, 292 if col == 0 else 297, 7.3, INK, font=TAG, tracking=0)
-            page.rendered.append(headline)
-
-def footer(page):
-    page.rect(EDGE, 971, WIDTH, 2, RED)
-    page.rect(EDGE, 975, WIDTH, 0.5, RULE)
-    centered(page, 'DATE CHECK: Every story on this paper happened on or before 20 Nov 2026', EDGE, 987, WIDTH, 8.8, INK, weight=2, tracking=0.22)
-    centered(page, 'SOURCES: REUTERS, AP, AFP, BBC, AL JAZEERA, CNN, NBC, TIMES OF INDIA, GUARDIAN — 2026-11-20', EDGE, 1003, WIDTH, 8, GREY, font=TAG, tracking=0.32)
-
-def compose_edition():
-    """Paint the edition in its original layer order and validate the copy."""
-    page = Page()
-    count = sum(map(len, (LEAD_STORIES, WORLD_CARDS, BULLETINS)))
-    masthead(page, count)
-    stats_bar(page)
-    draw_lead_stories(page)
-    draw_world_cards(page)
-    draw_bulletin_panel(page)
-    footer(page)
-    assert len(page.rendered) == len(set(page.rendered)) == count == 31
-    for i, (a, box) in enumerate(page.text_boxes):
-        for b, other in page.text_boxes[i + 1:]:
-            overlap = min(box[2], other[2]) > max(box[0], other[0]) and min(box[3], other[3]) > max(box[1], other[1])
-            assert not overlap, ('text overlap', a, b, box, other)
-    return page
+            board.draw(*(('r', middle - 28, scan, 11, 3, shade)
+                         for scan, shade in zip([91, 94, 97], [ivory, (82, 136, 207), vermilion])))
+        board.draw(('r', middle - 37, 108, 74, 18, ivory),
+                   ('t', person['name'], middle - 37, 112, 74, 8.5, 'ink'))
 
 
-def main():
-    """Serialize the checked edition and report the resulting PNG digest."""
-    page = compose_edition()
-    png = page.png()
-    assert len(png) <= 1048576
-    output = os.environ.get('MAKEFUN_OUTPUT_DIR', '/output')
-    os.makedirs(output, exist_ok=True)
-    path = os.path.join(output, 'entry.png')
-    with open(path, 'wb') as output_file:
-        output_file.write(png)
-    print(json.dumps({'output': path, 'bytes': len(png), 'sha256': hashlib.sha256(png).hexdigest(), 'stories': len(page.rendered), 'cards': len(WORLD_CARDS), 'ticker_items': len(BULLETINS), 'map_pins': page.map_pins, 'width': 1024, 'height': 1024, 'text_bounds_checked': len(page.text_boxes), 'layout': 'The World in One Day newspaper front page'}, sort_keys=True))
+def casualty_program(board):
+    board.draw(('r', 0, 0, board.width, board.height, (43, 39, 39)),
+               ('r', 0, 0, 5, board.height, 'red'),
+               ('t', 'OVERNIGHT ATTACK · UKRAINE', 12, 12, board.width - 24, 8, 'paper'),
+               ('t', '8', 14, 33, 86, 62, 'paper', dict(face='narrow', thickness=7)))
+    for slot in range(8):
+        column, row = slot % 4, slot // 4
+        horizontal, vertical = 132 + column * 39, 43 + row * 37
+        board.draw(('d', horizontal, vertical, 5, (211, 182, 158)),
+                   ('r', horizontal - 7, vertical + 8, 14, 15, (173, 114, 105)))
+    board.draw(('r', 15, 111, board.width - 30, 1, (140, 106, 99)),
+               ('t', 'KILLED IN UKRAINE', 15, 120, board.width - 30, 9, 'paper'))
 
 
-if __name__ == '__main__':
-    main()
+def equities_program(board):
+    board.draw(('r', 0, 0, board.width, board.height, (41, 49, 53)),
+               ('r', 0, 0, 5, board.height, 'red'),
+               ('t', 'GLOBAL EQUITIES · VALUE WIPED OUT', 12, 12, board.width - 24, 8, 'paper'),
+               ('t', '$9tn', 12, 34, 144, 43, 'paper', dict(face='narrow', thickness=6)))
+    board.draw(*(('l', [(169, scan), (289, scan)], (78, 86, 88), 2)
+                 for scan in [42, 65, 88]))
+    board.draw(('l', [(177, 36), (177, 51), (278, 92)], (225, 138, 118), 6),
+               ('p', [(263, 91), (283, 97), (278, 77)], (225, 138, 118)),
+               ('r', 15, 111, board.width - 30, 1, (105, 116, 119)),
+               ('t', 'VIX 30 · AI FEARS HIT STOCKS', 15, 120, board.width - 30, 9, 'paper'))
+
+
+def pictogram(board, subject, shade):
+    """Each symbol is a short data program in the same illustration ISA."""
+    board.draw(('r', 0, 0, 49, 49, (232, 223, 205)))
+    symbols = {
+        'bridge': [
+            ('r', 6, 28, 37, 4, shade),
+            ('r', 13, 14, 3, 23, shade), ('r', 33, 14, 3, 23, shade),
+            ('l', [(7, 25), (14, 15), (24, 25), (34, 15), (42, 25)], shade, 4),
+            ('l', [(8, 40), (41, 40)], shade, 2),
+        ],
+        'missile': [
+            ('p', [(12, 30), (30, 12), (40, 9), (37, 19), (19, 37), (13, 36)], shade),
+            ('p', [(14, 26), (10, 24), (17, 17), (23, 17), (31, 25),
+                   (31, 31), (24, 38), (22, 33)], shade),
+            ('l', [(9, 39), (14, 34)], 'amber', 4),
+        ],
+        'chart': [
+            ('l', [(9, 10), (9, 39), (41, 39)], shade),
+            ('l', [(13, 15), (22, 22), (27, 19), (39, 32)], shade, 5),
+            ('p', [(32, 32), (40, 25), (40, 34)], shade),
+        ],
+        'court': [
+            ('p', [(7, 18), (24, 8), (42, 18)], shade),
+            ('r', 8, 20, 33, 3, shade),
+            *(('r', pillar, 25, 4, 13, shade) for pillar in [12, 22, 32]),
+            ('r', 8, 40, 33, 3, shade),
+        ],
+        'fist': [
+            ('p', [(16, 37), (16, 29), (10, 23), (10, 18), (14, 16),
+                   (18, 21), (18, 13), (35, 13), (38, 18), (38, 26),
+                   (32, 33), (32, 37)], shade),
+            *(('r', u, v, 4, 11, shade) for u, v in [(18, 10), (23, 8), (28, 9), (33, 11)]),
+            ('l', [(14, 20), (23, 24), (29, 22)], 'paper', 3),
+            ('r', 16, 39, 16, 3, shade),
+        ],
+    }
+    board.draw(*symbols[subject])
+
+
+class Newspaper:
+    """Compile the edition's sections in their required compositing order."""
+
+    def __init__(self):
+        self.scene = DisplayList()
+        self.type = Typesetter(self.scene)
+
+    def section(self, name, summary, top):
+        self.scene.box(MARGIN, top, 4, 12, 'red')
+        self.type.put(name, MARGIN + 11, top, 389, 10.5, 'red', thickness=3, spacing=.92)
+        length = self.type.extent(summary, 8.5, 'tag', .75)
+        self.type.put(summary, MARGIN + LIVE_WIDTH - length - 2, top + 1,
+                      length + 2, 8.5, spacing=.75)
+
+    def nameplate(self):
+        t, s = self.type, self.scene
+        story_total = len(records(LEADS)) + len(records(CITY_COPY)) + len(records(BRIEF_COPY))
+        banner = f'THE WORLD IN ONE DAY · {story_total} STORIES · ACROSS THE GLOBE'
+        t.put(banner, MARGIN, 23, 783, 10, 'red', spacing=.7)
+        t.put('WORLD EDITION', 872, 23, 124, 10, spacing=.7)
+        t.put('FRIDAY 20 NOVEMBER 2026', MARGIN, 51, LIVE_WIDTH, 44, 'ink',
+              thickness=9, face='mast', spacing=1.5, align='center')
+        for top, height in [(128, 4), (136, 1)]:
+            s.box(MARGIN, top, LIVE_WIDTH, height, 'red')
+        metrics = records('''3|PEACE DECLARATION
+8|KILLED IN UKRAINE
+$9tn|MARKET ROUT
+$93.5bn|ANTHROPIC IPO
+51-48|IRAN WAR POWERS
+2.6%|TOKYO INFLATION
+10,000|ROHINGYA RESETTLED''')
+        cell_width = LIVE_WIDTH / len(metrics)
+        for position, (figure, caption) in enumerate(metrics):
+            left = MARGIN + position * cell_width
+            if position != 0:
+                s.box(left, 145, .5, 49, 'rule')
+            t.put(figure, left + 4, 147, cell_width - 8, 27,
+                  'blue' if position % 2 else 'red', thickness=5,
+                  face='narrow', spacing=0, align='center')
+            t.put(caption, left + 4, 187, cell_width - 8, 8, spacing=.4, align='center')
+        s.box(MARGIN, 202, LIVE_WIDTH, 2, 'red')
+
+    def front_page(self):
+        self.section('THE FRONT PAGE', 'DIPLOMACY · CONFLICT · MARKETS', 214)
+        for divider in [1, 2]:
+            self.scene.box(MARGIN + divider * 330 - 11 - .5, 229, 1, 275, 'rule')
+        artwork = [portrait_program, casualty_program, equities_program]
+        for slot, fields in enumerate(records(LEADS)):
+            heading, dateline, title, description, source = fields
+            left = MARGIN + slot * 330
+            artwork[slot](Artboard(self, (left, 229), (LEAD_WIDTH, 138)))
+            first_copy = len(self.scene.copy_bounds)
+            self.type.put(heading, left, 373, LEAD_WIDTH, 10, 'red', thickness=3, spacing=.7)
+            self.type.put(dateline, left, 387, LEAD_WIDTH, 7.3, spacing=.25)
+            title_rows = title.split('/')
+            for row, words in enumerate(title_rows):
+                self.type.put(words, left, 399 + row * 28, LEAD_WIDTH, 18, 'grey',
+                              thickness=4, face='hero', spacing=.15)
+            body_rows = self.type.paragraphs(description, 8, LEAD_WIDTH - 3, 'body')
+            assert len(body_rows) == 2
+            for row, words in enumerate(body_rows):
+                self.type.put(words, left, 457 + row * 14, LEAD_WIDTH, 8,
+                              face='body', spacing=0)
+            self.type.credit(source, left, LEAD_WIDTH, 510)
+            placed = self.scene.copy_bounds[first_copy:]
+            for previous, following in zip(placed[:-1], placed[1:]):
+                assert device(following[1][1] - previous[1][3]) >= 2
+            self.scene.stories.append(title_rows[0])
+
+    def city_reports(self):
+        self.scene.box(MARGIN, 510, LIVE_WIDTH, 3, 'red')
+        self.section('AROUND THE WORLD', 'EIGHT STORIES · CITY DISPATCHES', 523)
+        for ordinal, fields in enumerate(records(CITY_COPY)):
+            desk, city, symbol, title, description, source = fields
+            row, column = divmod(ordinal, 4)
+            left = device(MARGIN + column * (226 + 64 / 3)) / ZOOM
+            top = 544 + row * 119
+            shade = DESKS[desk][1]
+            first = len(self.scene.copy_bounds)
+            self.scene.box(left, top, 226, 2, 'red')
+            self.scene.box(left, top + 9, 3, 10, shade)
+            self.type.put(desk, left + 8, top + 10, 218, 6.7,
+                          shade, thickness=3, spacing=.25)
+            self.type.put(city, left, top + 21, 173, 7.2, spacing=.8)
+            pictogram(Artboard(self, (left + 177, top + 18), (49, 49)), symbol, shade)
+            headline_rows = self.type.paragraphs(title, 11.5, 164, 'narrow')
+            assert 1 <= len(headline_rows) <= 3
+            for line_number, words in enumerate(headline_rows):
+                self.type.put(words, left, top + 31 + line_number * 18, 167, 11.5,
+                              'ink', thickness=3, face='narrow', spacing=0)
+            description_top = top + 31 + len(headline_rows) * 18 + 2
+            for line_number, words in enumerate(self.type.paragraphs(description, 6.3, 224, 'tag')):
+                self.type.put(words, left, description_top + line_number * 11,
+                              226, 6.3, spacing=0)
+            self.type.credit(source, left, 226, top + 118)
+            for words, (west, north, east, south) in self.scene.copy_bounds[first:]:
+                assert left <= west < east <= left + 226, words
+                assert top <= north < south <= top + 118, words
+            self.scene.stories.append(title)
+
+    def locator(self, left, top):
+        spacing = 1.45
+        packed = radix.b64decode(WORLD_BITS, validate=True)
+        assert len(packed) * 8 == 180 * 90
+        for northing in range(0, 90, 2):
+            for easting in range(0, 180, 2):
+                ordinal = northing * 180 + easting
+                byte_index, shift = divmod(ordinal, 8)
+                if (packed[byte_index] >> (7 - shift)) & 1:
+                    self.scene.circle(left + (easting + .5) * spacing,
+                                      top + (northing + .5) * spacing, .55, 'land')
+        clusters = {}
+        for ordinal, (desk, headline) in enumerate(records(BRIEF_COPY), start=1):
+            clusters.setdefault(desk, []).append(ordinal)
+        anchors = {
+            'ASIA': (195, 35, 220, 63), 'EUROPE': (125, 14, 150, 28),
+            'RUSSIA & UKRAINE': (177, 9, 202, 23), 'MIDDLE EAST': (151, 44, 176, 58),
+            'AFRICA': (124, 76, 149, 90), 'AMERICAS': (53, 48, 78, 76),
+            'TECHNOLOGY & BUSINESS': (65, 24, 90, 38),
+        }
+        ordered = []
+        for rank in range(max(len(numbers) for numbers in clusters.values())):
+            for desk, numbers in clusters.items():
+                if rank < len(numbers):
+                    ordered.append((desk, numbers[rank], rank))
+        occupied = []
+        for desk, ordinal, rank in ordered[:16]:
+            west, north, east, south = anchors[desk]
+            column, row = rank % 2, rank // 2
+            horizontal_jitter = ((ordinal * 7) % 3 - 1) / 3
+            vertical_jitter = ((ordinal * 11) % 3 - 1) / 3
+            px = left + west + column * (east - west) + horizontal_jitter
+            py = top + north + row * (south - north) + column * 2 + vertical_jitter
+            assert all(geometry.hypot(px - u, py - v) >= 12 for u, v in occupied)
+            occupied.append((px, py))
+            self.scene.circle(px, py, 2.5, DESKS[desk][1])
+            digits = format(ordinal, '02d')
+            self.type.put(digits, px + 4 + 1, py - 4 + 1, 15, 6.7,
+                          'paper', thickness=5, spacing=0)
+            self.scene.copy_bounds.pop()
+            self.type.put(digits, px + 4, py - 4, 15, 6.7,
+                          'ink', thickness=3, spacing=0)
+        self.scene.pin_count = len(occupied)
+
+    def briefs(self):
+        self.scene.box(MARGIN, 787, LIVE_WIDTH, 3, 'red')
+        self.section('WHERE IT HAPPENED', '20 BRIEFS · MAP PINS MATCH REGION CODES', 800)
+        self.locator(MARGIN, 827)
+        self.type.put('REGION CENTROIDS · NATURAL EARTH 1:110M', MARGIN, 959,
+                      260, 6, spacing=.15)
+        news = records(BRIEF_COPY)
+        for column, left in enumerate([307, 654]):
+            self.scene.box(left - 9, 827, .5, 137, 'rule')
+            for row in range(10):
+                ordinal = column * 10 + row
+                desk, headline = news[ordinal]
+                code, shade = DESKS[desk]
+                top = 830 + row * 14
+                self.scene.box(left, top, 2, 8, shade)
+                self.type.put(format(ordinal + 1, '02d'), left + 5, top, 16, 7, spacing=0)
+                self.type.put(code, left + 24, top, 17, 7, shade, thickness=3, spacing=0)
+                self.type.put(headline, left + 45, top, 292 + 5 * column, 7.3,
+                              'ink', spacing=0)
+                self.scene.stories.append(headline)
+
+    def colophon(self):
+        self.scene.box(MARGIN, 971, LIVE_WIDTH, 2, 'red')
+        self.scene.box(MARGIN, 975, LIVE_WIDTH, .5, 'rule')
+        checks = 'DATE CHECK: Every story on this paper happened on or before 20 Nov 2026'
+        sources = ('SOURCES: REUTERS, AP, AFP, BBC, AL JAZEERA, CNN, NBC, '
+                   'TIMES OF INDIA, GUARDIAN — 2026-11-20')
+        self.type.put(checks, MARGIN, 987, LIVE_WIDTH, 8.8, 'ink', face='body',
+                      spacing=.22, align='center')
+        self.type.put(sources, MARGIN, 1003, LIVE_WIDTH, 8, spacing=.32, align='center')
+
+    def finish(self):
+        self.nameplate()
+        self.front_page()
+        self.city_reports()
+        self.briefs()
+        self.colophon()
+        assert len(self.scene.stories) == len(set(self.scene.stories)) == 31
+        assert self.scene.pin_count == 16
+        assert len(self.scene.copy_bounds) == 188
+        for index, (words, bounds) in enumerate(self.scene.copy_bounds):
+            for other_words, other_bounds in self.scene.copy_bounds[index + 1:]:
+                shared_width = min(bounds[2], other_bounds[2]) - max(bounds[0], other_bounds[0])
+                shared_height = min(bounds[3], other_bounds[3]) - max(bounds[1], other_bounds[1])
+                assert shared_width <= 0 or shared_height <= 0, (words, other_words)
+        return self.scene
+
+
+def build_edition():
+    return Newspaper().finish()
+
+
+def run_press():
+    edition = build_edition()
+    machine = RasterPress()
+    machine.paint(edition.operations)
+    image_bytes = machine.encode()
+    assert len(image_bytes) <= 1 << 20
+    directory = filesystem.environ.get('MAKEFUN_OUTPUT_DIR', '/output')
+    filesystem.makedirs(directory, exist_ok=True)
+    destination = filesystem.path.join(directory, 'entry.png')
+    with open(destination, 'wb') as stream:
+        stream.write(image_bytes)
+    with open(__file__, encoding='utf-8') as source_stream:
+        authored_lines = sum(1 for source_line in source_stream)
+    print(reporting.dumps(dict(output=destination, bytes=len(image_bytes),
+          sha256=digests.sha256(image_bytes).hexdigest(), lines=authored_lines,
+          stories=len(edition.stories), map_pins=edition.pin_count,
+          cards=len(records(CITY_COPY)), ticker_items=len(records(BRIEF_COPY)),
+          text_bounds_checked=len(edition.copy_bounds), width=RESOLUTION,
+          height=RESOLUTION), sort_keys=True))
+
+
+if __name__ == "__main__":
+    run_press()
